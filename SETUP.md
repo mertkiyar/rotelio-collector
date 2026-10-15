@@ -18,6 +18,13 @@ process compresses and uploads the consistent copy to the private release,
 then downloads and restores it. Every observation identifier must match the
 original. The original local pool remains unchanged.
 
+The bootstrap bundle includes dated CSV exports and events. Older raw page
+snapshots remain in the original local backup by default; use `--include-raw`
+to include them during initial migration. This avoids delaying the database
+transfer when old raw files have been offloaded to cloud-synced local storage.
+The database contains all validated observations and quarantined source rows
+regardless of this option. New hosted runs include their own raw snapshots.
+
 Bootstrap is a one-time operation. It refuses to replace an already initialized
 checkpoint. A vault release tagged `flight-pool` must exist with the JSON body
 `{"format_version": 1, "status": "uninitialized"}` before bootstrap.
@@ -90,7 +97,8 @@ Review the Actions summary for counts and coverage. Raw prices are not printed
 to public logs. In the private repository, Releases, Flight observation pool:
 
 - `pool-*.sqlite3.gz` files are full cumulative database checkpoints.
-- `observations-*.tar.gz` files contain that run's dated CSV and raw records.
+- `observations-*.tar.gz` files from hosted runs contain the combined CSV,
+  that run's dated CSV and raw records.
 - The release description points to the latest committed checkpoint.
 
 Older assets remain available. Download the latest checkpoint and use SQLite

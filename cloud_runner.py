@@ -130,6 +130,8 @@ def run(limit):
         with tarfile.open(bundle, "w:gz") as archive:
             # No raw records are uploaded to public workflow artifacts or logs.
             for name in (
+                "flights.csv",
+                "query_prices.csv",
                 "daily",
                 "raw",
                 "collection.log",

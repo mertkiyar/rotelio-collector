@@ -13,10 +13,13 @@ class RunnerTests(unittest.TestCase):
             data = Path(directory)
             process = Mock()
             process.wait.return_value = 0
-            with patch.dict(os.environ, {
-                "DATA_VAULT_TOKEN": "unit-test-vault-placeholder",
-                "GITHUB_TOKEN": "unit-test-checkout-placeholder",
-            }), patch("cloud_runner.subprocess.Popen", return_value=process) as start:
+            with patch.dict(
+                os.environ,
+                {
+                    "DATA_VAULT_TOKEN": "unit-test-vault-placeholder",
+                    "GITHUB_TOKEN": "unit-test-checkout-placeholder",
+                },
+            ), patch("cloud_runner.subprocess.Popen", return_value=process) as start:
                 self.assertEqual(collect_process(1, data, data / "collection.log"), 0)
                 child = start.call_args.kwargs["env"]
             self.assertNotIn("DATA_VAULT_TOKEN", child)

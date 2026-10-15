@@ -9,7 +9,7 @@ from pathlib import Path
 from vault import GitHubVault, VaultError, inspect_database, observation_ids
 
 
-def bootstrap(data_directory, minimum):
+def bootstrap(data_directory, minimum, include_raw=False):
     data = Path(data_directory).resolve()
     database = data / "flights.sqlite3"
     original = inspect_database(database)
@@ -21,7 +21,10 @@ def bootstrap(data_directory, minimum):
     with tempfile.TemporaryDirectory(prefix="rotelio-bootstrap-") as directory:
         bundle = Path(directory) / "observations.tar.gz"
         with tarfile.open(bundle, "w:gz") as archive:
-            for name in ("daily", "raw", "events.jsonl", "rejected_offers.csv"):
+            names = ["daily", "events.jsonl", "rejected_offers.csv"]
+            if include_raw:
+                names.append("raw")
+            for name in names:
                 if (data / name).exists():
                     archive.add(data / name, arcname=name)
         metadata = vault.publish(database, baseline, bundle=bundle, initialize=True)
@@ -49,9 +52,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-directory", type=Path, required=True)
     parser.add_argument("--minimum-observations", type=int, default=1)
+    parser.add_argument("--include-raw", action="store_true")
     args = parser.parse_args()
     try:
-        bootstrap(args.data_directory, args.minimum_observations)
+        bootstrap(args.data_directory, args.minimum_observations, args.include_raw)
     except VaultError as error:
         print(str(error))
         raise SystemExit(2)
