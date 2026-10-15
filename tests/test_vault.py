@@ -35,6 +35,14 @@ def database(path, identifiers=("first", "second")):
 
 
 class VaultTests(unittest.TestCase):
+    def test_invalid_token_is_rejected_without_echoing_the_value(self):
+        token = "unit-test\nplaceholder"
+        with self.assertRaises(VaultError) as result:
+            GitHubVault("example/private-data", token)
+        self.assertNotIn("placeholder", str(result.exception))
+        vault = GitHubVault("example/private-data", " unit-test-placeholder\n")
+        self.assertEqual(vault.token, "unit-test-placeholder")
+
     def test_consistent_backup_and_checksum_restore(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

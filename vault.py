@@ -131,11 +131,13 @@ def unpack_checkpoint(archive, destination, metadata):
 class GitHubVault:
     def __init__(self, repository=None, token=None):
         self.repository = repository or os.environ.get("DATA_VAULT_REPOSITORY", "")
-        self.token = token or os.environ.get("DATA_VAULT_TOKEN", "")
+        self.token = (token or os.environ.get("DATA_VAULT_TOKEN", "")).strip()
         if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", self.repository):
             raise VaultError("DATA_VAULT_REPOSITORY must be owner/repository")
         if not self.token:
             raise VaultError("DATA_VAULT_TOKEN is not configured")
+        if any(ord(character) < 33 or ord(character) > 126 for character in self.token):
+            raise VaultError("DATA_VAULT_TOKEN contains invalid characters")
         self.opener = urllib.request.build_opener(PrivateRedirect())
         self.base = "/repos/" + self.repository
 

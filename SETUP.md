@@ -111,6 +111,12 @@ The laptop can be asleep or off after hosted scheduling has been verified and
 enabled. No local browser session is needed by the hosted workflow. Scheduled
 Actions can be delayed and require the workflow on the default branch.
 
+GitHub can disable a public repository's scheduled workflows after 60 days of
+repository inactivity. Review the Actions page if development stops for that
+long and re-enable the workflow when needed. Replace the vault token before its
+configured expiry. These are service lifecycle requirements, not laptop uptime
+requirements.
+
 The job uses only a standard public-repository Linux runner. It is skipped if
 the code repository becomes private. No Actions artifacts, paid runner types or
 cache uploads are configured. The private data repository has no workflow.
