@@ -1,0 +1,170 @@
+{
+  "schema_version": "2.0",
+  "timezone": "Europe/Istanbul",
+  "origin_ids": [
+    "250_0",
+    "222_4"
+  ],
+  "points": {
+    "250_0": {
+      "name": "İstanbul",
+      "airports": [
+        "IST",
+        "SAW"
+      ],
+      "source_url": "https://www.obilet.com/ucak-bileti/istanbul"
+    },
+    "222_4": {
+      "name": "Ankara",
+      "airports": [
+        "ESB"
+      ],
+      "source_url": "https://www.obilet.com/ucak-bileti/ankara"
+    },
+    "251_18": {
+      "name": "İzmir",
+      "airports": [
+        "ADB"
+      ],
+      "source_url": "https://www.obilet.com/ucak-bileti/izmir"
+    },
+    "476_68": {
+      "name": "Bodrum",
+      "airports": [
+        "BJV"
+      ],
+      "source_url": "https://www.obilet.com/ucak-bileti/bodrum"
+    },
+    "508_69": {
+      "name": "Dalaman",
+      "airports": [
+        "DLM"
+      ],
+      "source_url": "https://www.obilet.com/ucak-bileti/dalaman"
+    },
+    "277_33": {
+      "name": "Trabzon",
+      "airports": [
+        "TZX"
+      ],
+      "source_url": "https://www.obilet.com/ucak-bileti/trabzon"
+    },
+    "266_26": {
+      "name": "Nevşehir",
+      "airports": [
+        "NAV"
+      ],
+      "source_url": "https://www.obilet.com/ucak-bileti/nevsehir"
+    },
+    "243_16": {
+      "name": "Gaziantep",
+      "airports": [
+        "GZT"
+      ],
+      "source_url": "https://www.obilet.com/ucak-bileti/gaziantep"
+    },
+    "241_14": {
+      "name": "Erzurum",
+      "airports": [
+        "ERZ"
+      ],
+      "source_url": "https://www.obilet.com/ucak-bileti/erzurum"
+    },
+    "223_5": {
+      "name": "Antalya",
+      "airports": [
+        "AYT"
+      ],
+      "source_url": "https://www.obilet.com/ucak-bileti/antalya"
+    }
+  },
+  "destinations": [
+    {
+      "region_id": "antalya",
+      "name": "Antalya",
+      "search_id": "223_5",
+      "tags": [
+        "beach",
+        "culture"
+      ]
+    },
+    {
+      "region_id": "izmir_cesme",
+      "name": "İzmir / Çeşme-Alaçatı",
+      "search_id": "251_18",
+      "tags": [
+        "beach",
+        "gastronomy"
+      ]
+    },
+    {
+      "region_id": "mugla_bodrum",
+      "name": "Muğla / Bodrum",
+      "search_id": "476_68",
+      "tags": [
+        "beach",
+        "culture"
+      ]
+    },
+    {
+      "region_id": "mugla_fethiye",
+      "name": "Muğla / Fethiye",
+      "search_id": "508_69",
+      "tags": [
+        "beach",
+        "nature"
+      ]
+    },
+    {
+      "region_id": "trabzon",
+      "name": "Trabzon",
+      "search_id": "277_33",
+      "tags": [
+        "nature",
+        "culture"
+      ]
+    },
+    {
+      "region_id": "nevsehir",
+      "name": "Nevşehir / Kapadokya",
+      "search_id": "266_26",
+      "tags": [
+        "culture",
+        "romantic"
+      ]
+    },
+    {
+      "region_id": "gaziantep",
+      "name": "Gaziantep",
+      "search_id": "243_16",
+      "tags": [
+        "gastronomy",
+        "culture"
+      ]
+    },
+    {
+      "region_id": "erzurum",
+      "name": "Erzurum / Palandöken",
+      "search_id": "241_14",
+      "tags": [
+        "winter",
+        "culture"
+      ]
+    }
+  ],
+  "cohort_anchor_date": "2026-10-15",
+  "cohort_offsets": [
+    7,
+    14,
+    21,
+    30,
+    45,
+    52,
+    59
+  ],
+  "horizon_days": 60,
+  "max_queries_per_day": 240,
+  "minimum_seconds_between_searches": 30,
+  "results_timeout_seconds": 55,
+  "stable_result_seconds": 5
+}

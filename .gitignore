@@ -1,0 +1,14 @@
+.venv
+__pycache__/
+*.py[cod]
+.env
+.env.*
+.DS_Store
+**/data/
+runtime/
+.private/
+*.sqlite3*
+*.gz
+*.tar
+*.csv
+*.log

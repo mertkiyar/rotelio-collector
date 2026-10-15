@@ -1,0 +1,55 @@
+name: Collect flight observations
+
+on:
+  workflow_dispatch:
+    inputs:
+      query_limit:
+        description: 'Queries to process (1 for the initial access check, 224 for the full plan)'
+        type: choice
+        options: ['1', '32', '224']
+        default: '1'
+  schedule:
+    - cron: '17 6 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flight-pool-writer
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    # Private execution must not consume the owner's included private minutes.
+    # Scheduling stays disabled until the first hosted access check succeeds.
+    if: ${{ github.event.repository.private == false && (github.event_name == 'workflow_dispatch' || vars.COLLECTION_ENABLED == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      FLIGHT_BROWSER_CHANNEL: chromium
+      DATA_VAULT_REPOSITORY: ${{ vars.DATA_VAULT_REPOSITORY }}
+      QUERY_LIMIT: ${{ inputs.query_limit || '224' }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Verify private vault access
+        env:
+          DATA_VAULT_TOKEN: ${{ secrets.DATA_VAULT_TOKEN }}
+        run: python -c "from vault import GitHubVault; GitHubVault().verify_private(); print('Private vault access verified.')"
+      - name: Run offline tests
+        run: |
+          python -m unittest discover -s transportation/tests
+          python -m unittest discover -s tests
+      - name: Install runtime
+        run: |
+          python -m pip install -r transportation/requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Collect and checkpoint
+        env:
+          DATA_VAULT_TOKEN: ${{ secrets.DATA_VAULT_TOKEN }}
+        run: python cloud_runner.py --limit "$QUERY_LIMIT"

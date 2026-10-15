@@ -1,0 +1,222 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Rotelio flight observation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "observation_id",
+    "snapshot_id",
+    "query_id",
+    "collection_date",
+    "observed_at",
+    "region_id",
+    "region_name",
+    "origin_city",
+    "destination_city",
+    "trip_direction",
+    "search_origin_id",
+    "search_destination_id",
+    "source",
+    "source_url",
+    "source_offer_id",
+    "capture_method",
+    "carrier",
+    "origin_airport_code",
+    "destination_airport_code",
+    "origin_airport_name",
+    "destination_airport_name",
+    "departure_date",
+    "departure_time",
+    "departure_at",
+    "arrival_date",
+    "arrival_time",
+    "arrival_at",
+    "arrival_date_basis",
+    "duration_minutes",
+    "lead_days",
+    "departure_weekday",
+    "departure_hour",
+    "is_weekend",
+    "is_direct",
+    "transfer_description",
+    "currency",
+    "price_minor",
+    "price_amount",
+    "price_scope",
+    "search_adults",
+    "cabin_class",
+    "checked_baggage_display",
+    "cabin_baggage_display",
+    "available",
+    "analysis_eligible",
+    "checkout_price_verified",
+    "schedule_id"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "2.0"
+    },
+    "observation_id": {
+      "type": "string"
+    },
+    "snapshot_id": {
+      "type": "string"
+    },
+    "query_id": {
+      "type": "string"
+    },
+    "collection_date": {
+      "type": "string"
+    },
+    "observed_at": {
+      "type": "string"
+    },
+    "region_id": {
+      "type": "string"
+    },
+    "region_name": {
+      "type": "string"
+    },
+    "origin_city": {
+      "type": "string"
+    },
+    "destination_city": {
+      "type": "string"
+    },
+    "trip_direction": {
+      "type": "string",
+      "enum": [
+        "outbound",
+        "inbound"
+      ]
+    },
+    "search_origin_id": {
+      "type": "string"
+    },
+    "search_destination_id": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string"
+    },
+    "source_url": {
+      "type": "string"
+    },
+    "source_offer_id": {
+      "type": "string"
+    },
+    "capture_method": {
+      "type": "string"
+    },
+    "carrier": {
+      "type": "string"
+    },
+    "origin_airport_code": {
+      "type": "string"
+    },
+    "destination_airport_code": {
+      "type": "string"
+    },
+    "origin_airport_name": {
+      "type": "string"
+    },
+    "destination_airport_name": {
+      "type": "string"
+    },
+    "departure_date": {
+      "type": "string"
+    },
+    "departure_time": {
+      "type": "string"
+    },
+    "departure_at": {
+      "type": "string"
+    },
+    "arrival_date": {
+      "type": "string"
+    },
+    "arrival_time": {
+      "type": "string"
+    },
+    "arrival_at": {
+      "type": "string"
+    },
+    "arrival_date_basis": {
+      "type": "string"
+    },
+    "duration_minutes": {
+      "type": "integer"
+    },
+    "lead_days": {
+      "type": "integer"
+    },
+    "departure_weekday": {
+      "type": "integer"
+    },
+    "departure_hour": {
+      "type": "integer"
+    },
+    "is_weekend": {
+      "type": "boolean"
+    },
+    "is_direct": {
+      "type": "boolean"
+    },
+    "transfer_description": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "currency": {
+      "type": "string",
+      "enum": [
+        "TRY"
+      ]
+    },
+    "price_minor": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "price_amount": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]{2}$"
+    },
+    "price_scope": {
+      "type": "string"
+    },
+    "search_adults": {
+      "type": "integer",
+      "const": 1
+    },
+    "cabin_class": {
+      "type": "string"
+    },
+    "checked_baggage_display": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "cabin_baggage_display": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "available": {
+      "type": "boolean"
+    },
+    "analysis_eligible": {
+      "type": "boolean"
+    },
+    "checkout_price_verified": {
+      "type": "boolean"
+    },
+    "schedule_id": {
+      "type": "string"
+    }
+  }
+}
