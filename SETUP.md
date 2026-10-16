@@ -85,9 +85,19 @@ until a genuine cloud query has succeeded.
 ## Daily operation
 
 After the access check, set `COLLECTION_ENABLED=true`. The daily schedule runs at
-06:17 UTC (09:17 Turkey time). The next full run uses the same retained pool.
+06:17 UTC (09:17 Turkey time), with a recovery check at 15:17 UTC (18:17 Turkey
+time). Both use the same retained pool and the current Turkey calendar date.
 For the rest of the current day's plan, manually run query limit `224`.
 Completed queries on that observation day are skipped.
+
+The coverage check restores and validates the private pool before installing
+the browser. When the exact daily plan is already covered and the audit passes,
+`skipped=true` and `reason=daily_plan_already_covered` appear in the summary.
+Browser installation, source collection and checkpoint upload are skipped.
+An incomplete morning run can leave pending queries for the evening check;
+previous observations remain intact. Source-access and validation blocks are
+never cleared automatically. An incomplete plan still fails the full-run check
+instead of being labelled complete.
 
 Stop the old local scheduler before enabling regular cloud collection. Two
 independent pool copies must not both act as the current writer. Keep the local
@@ -109,7 +119,9 @@ occasional independent downloaded backup as well.
 
 The laptop can be asleep or off after hosted scheduling has been verified and
 enabled. No local browser session is needed by the hosted workflow. Scheduled
-Actions can be delayed and require the workflow on the default branch.
+Actions can be delayed or dropped and require the workflow on the default
+branch. Confirm an actual run with event `schedule` in the Actions history;
+a successful manual dispatch alone does not verify automatic scheduling.
 
 GitHub can disable a public repository's scheduled workflows after 60 days of
 repository inactivity. Review the Actions page if development stops for that

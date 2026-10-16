@@ -9,7 +9,9 @@ on:
         options: ['1', '32', '224']
         default: '1'
   schedule:
+    # Turkey time: 09:17 primary, 18:17 recovery check (UTC+3).
     - cron: '17 6 * * *'
+    - cron: '17 15 * * *'
 
 permissions:
   contents: read
@@ -45,11 +47,18 @@ jobs:
         run: |
           python -m unittest discover -s transportation/tests
           python -m unittest discover -s tests
+      - name: Check daily coverage
+        id: coverage
+        env:
+          DATA_VAULT_TOKEN: ${{ secrets.DATA_VAULT_TOKEN }}
+        run: python cloud_runner.py --limit "$QUERY_LIMIT" --check
       - name: Install runtime
+        if: steps.coverage.outputs.needs_collection == 'true'
         run: |
           python -m pip install -r transportation/requirements.txt
           python -m playwright install --with-deps chromium
       - name: Collect and checkpoint
+        if: steps.coverage.outputs.needs_collection == 'true'
         env:
           DATA_VAULT_TOKEN: ${{ secrets.DATA_VAULT_TOKEN }}
         run: python cloud_runner.py --limit "$QUERY_LIMIT"

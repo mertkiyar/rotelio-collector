@@ -95,7 +95,44 @@ def collect_process(limit, data, log):
             return 130
 
 
-def run(limit):
+def plan_covered(db, day, jobs):
+    expected = {job["query_id"] for job in jobs}
+    rows = db.execute(
+        """SELECT q.query_id, q.query_state, EXISTS(
+        SELECT 1 FROM offers o WHERE o.collection_date=q.collection_date
+        AND o.query_id=q.query_id
+        AND json_extract(o.payload,'$.analysis_eligible')=1)
+        FROM queries q WHERE q.collection_date=?""",
+        (day,),
+    ).fetchall()
+    return (
+        bool(expected)
+        and {row[0] for row in rows} == expected
+        and all(row[1] in ("ok", "partial") and row[2] for row in rows)
+    )
+
+
+def write_summary(summary):
+    # Aggregate counts only. Offer payloads and diagnostic logs stay private.
+    print(json.dumps(summary, indent=2))
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary_path:
+        with Path(summary_path).open("a", encoding="utf-8") as output:
+            output.write(
+                "## Flight collection\n\n```json\n"
+                + json.dumps(summary, indent=2)
+                + "\n```\n"
+            )
+
+
+def workflow_output(needs_collection):
+    path = os.environ.get("GITHUB_OUTPUT")
+    if path:
+        with Path(path).open("a", encoding="utf-8") as output:
+            output.write(f"needs_collection={str(needs_collection).lower()}\n")
+
+
+def run(limit, check_only=False):
     if not 1 <= limit <= 224:
         raise VaultError("Query limit must be between 1 and 224")
     vault = GitHubVault()
@@ -111,11 +148,58 @@ def run(limit):
 
         os.environ["ROTELIO_DATA_DIR"] = str(data)
         sys.path.insert(0, str(ROOT / "transportation"))
-        from daily import today
-        from flight_store import connect, export
+        from daily import today, load_config, build_jobs
+        from flight_store import connect, export, get_control
         from audit import audit
 
         day = today()
+        jobs = build_jobs(load_config(), day)
+        db = connect(database)
+        try:
+            if get_control(db, "blocked"):
+                raise VaultError(
+                    "Stored collection block requires review; no source requests sent"
+                )
+            covered = plan_covered(db, day.isoformat(), jobs)
+            current = export(db, day.isoformat()) if covered else None
+        finally:
+            db.close()
+        if covered:
+            report = audit(day)
+            if not report["audit_passed"]:
+                raise VaultError(
+                    "Stored daily observations failed audit; no source requests sent"
+                )
+            write_summary(
+                {
+                    "collection_date": day.isoformat(),
+                    "skipped": True,
+                    "reason": "daily_plan_already_covered",
+                    "total_observation_count": before["offer_count"],
+                    "daily_observation_count": current["offer_count"],
+                    "covered_query_count": len(jobs),
+                    "planned_query_count": len(jobs),
+                    "coverage_complete": True,
+                    "audit_passed": True,
+                    "source_requests_sent": 0,
+                    "checkpoint_saved": False,
+                }
+            )
+            workflow_output(False)
+            return 0
+        if check_only:
+            write_summary(
+                {
+                    "collection_date": day.isoformat(),
+                    "needs_collection": True,
+                    "total_observation_count": before["offer_count"],
+                    "planned_query_count": len(jobs),
+                    "source_requests_sent": 0,
+                }
+            )
+            workflow_output(True)
+            return 0
+
         log = data / "collection.log"
         result = collect_process(limit, data, log)
         db = connect(database)
@@ -162,16 +246,7 @@ def run(limit):
             "audit_passed": report["audit_passed"],
             "checkpoint_saved": True,
         }
-        # Aggregate counts only. Offer payloads and diagnostic logs stay private.
-        print(json.dumps(summary, indent=2))
-        summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
-        if summary_path:
-            with Path(summary_path).open("a", encoding="utf-8") as output:
-                output.write(
-                    "## Flight collection\n\n```json\n"
-                    + json.dumps(summary, indent=2)
-                    + "\n```\n"
-                )
+        write_summary(summary)
         if result or not report["audit_passed"]:
             return result or 2
         if limit == 224 and not current["coverage_complete"]:
@@ -184,9 +259,14 @@ def run(limit):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--limit", type=int, required=True)
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Check the private pool without source requests",
+    )
     args = parser.parse_args()
     try:
-        raise SystemExit(run(args.limit))
+        raise SystemExit(run(args.limit, check_only=args.check))
     except VaultError as error:
         print(str(error), file=sys.stderr)
         raise SystemExit(2)

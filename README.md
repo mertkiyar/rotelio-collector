@@ -14,9 +14,18 @@ and Erzurum. Both directions across seven selected future departure dates
 produce 224 daily searches. Search starts remain at least 30 seconds apart.
 This is a sampled date plan, not a scan of every date or route in Turkey.
 
-The daily schedule is 06:17 UTC, or 09:17 in Turkey. GitHub can delay scheduled
-runs. Manual runs support a one-query access check, a 32-query batch or the full
-224-query plan. A full day generally takes about two hours.
+The primary schedule is 06:17 UTC (09:17 in Turkey), with a recovery check at
+15:17 UTC (18:17 in Turkey). GitHub can delay or drop scheduled runs; these are
+target times rather than an exact-time guarantee. Manual runs support a
+one-query access check, a 32-query batch or the full 224-query plan. A full day
+generally takes about two hours.
+
+Each invocation checks the restored pool against the exact current daily plan.
+If every planned query has an eligible observation and the offline audit passes,
+it exits before installing the browser or contacting the flight source. No new
+checkpoint is uploaded for an already covered day. Otherwise it collects the
+remaining pending queries within the existing daily budget. A stored access or
+validation block stops both schedules until reviewed; recovery never clears it.
 
 ## Private storage
 
@@ -64,7 +73,7 @@ skipped rather than consume private-repository minutes.
 
 Storage uses private release assets rather than Actions artifact storage. GitHub
 documents up to 1,000 assets per release and a maximum of 2 GiB per asset; this
-pilot retains two assets per collection run. These service limits and pricing
+pilot retains two assets per run that performs collection. These service limits and pricing
 can change and should be reviewed if the deployment is extended.
 
 ## Data quality and privacy
