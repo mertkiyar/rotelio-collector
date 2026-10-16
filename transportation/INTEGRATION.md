@@ -44,3 +44,17 @@ of the same departure to enter the training data used for an earlier forecast.
 Compare an initial model against the last observed price. Minimum query fares
 may come from different carriers or schedules on different observation days;
 `schedule_id` is a heuristic schedule match, not a verified flight number.
+
+## Refresh windows
+
+A refresh cycle covers every departure date from cycle start + 1 through
+cycle start + 30, in both directions. Cycles repeat every three days. CSV
+`collection_date` and `observed_at` always describe actual capture time, even
+when a delayed batch finishes on a later day. Do not relabel a whole cycle as
+one simultaneous snapshot. Use the latest available matching-date offers and
+show their age. The first and last stored dates bound supported fare lookup;
+a 14-night stay starting near the last date can require a return outside it.
+
+Daily manifests describe actual-day rows. The private bundle also contains
+`cycles/YYYY-MM-DD/manifest.json` for full-cycle coverage. Earlier historical
+offers are preserved but are not fresh observations for a later cycle.

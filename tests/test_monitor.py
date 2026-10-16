@@ -28,8 +28,8 @@ class MonitorTests(unittest.TestCase):
             "healthy": False,
             "kind": kind,
             "collection_date": day,
-            "covered_query_count": 223,
-            "planned_query_count": 224,
+            "covered_query_count": 959,
+            "planned_query_count": 960,
             "daily_observation_count": 6000,
         }
 
@@ -42,7 +42,7 @@ class MonitorTests(unittest.TestCase):
                         {
                             "collection_date": "2026-10-16",
                             "needs_collection": True,
-                            "planned_query_count": 224,
+                            "planned_query_count": 960,
                             "covered_query_count": 0,
                             "daily_observation_count": 0,
                         }
@@ -67,8 +67,8 @@ class MonitorTests(unittest.TestCase):
                                 "collection_date": "2026-10-16",
                                 "coverage_complete": True,
                                 "audit_passed": audit,
-                                "planned_query_count": 224,
-                                "covered_query_count": 224,
+                                "planned_query_count": 960,
+                                "covered_query_count": 960,
                                 "daily_observation_count": 6321,
                             }
                         )
@@ -101,7 +101,7 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(path, "/repos/example/collector/issues")
         self.assertEqual(payload["assignees"], ["example"])
         self.assertIn("@example", payload["body"])
-        self.assertIn("223 / 224", payload["body"])
+        self.assertIn("959 / 960", payload["body"])
         client.open_alert.return_value = {"number": 1, "body": payload["body"]}
         client.request.reset_mock()
         self.assertEqual(

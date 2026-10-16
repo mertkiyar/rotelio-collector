@@ -10,7 +10,8 @@ import sys
 import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from flight_schema import TZ, FIELDS, VERSION, normalize, query_id
+from flight_schema import TZ, FIELDS, VERSION, normalize
+from flight_plan import build_jobs, travel_dates, cycle_state, public_cycle_state
 from flight_store import (
     ROOT,
     DATA,
@@ -41,80 +42,28 @@ def load_config():
     cfg = json.loads((ROOT / "pilot_config.json").read_text(encoding="utf-8"))
     if len(cfg["origin_ids"]) != 2 or len(cfg["destinations"]) != 8:
         raise ValueError("Expected approved 2-origin / 8-destination pilot")
-    if len(cfg["cohort_offsets"]) != 7 or len(set(cfg["cohort_offsets"])) != 7:
-        raise ValueError("Seven unique cohort dates required")
+    if cfg["horizon_days"] != 30 or cfg["refresh_interval_days"] != 3:
+        raise ValueError("Expected a 30-date window refreshed every three days")
+    if cfg["batch_query_limit"] != 240 or cfg["max_queries_per_cycle"] != 992:
+        raise ValueError(
+            "Expected four 240-query batches and 32 recovery attempts per refresh"
+        )
     for k, p in cfg["points"].items():
         if not p.get("airports") or not p.get("name"):
             raise ValueError("Invalid point " + k)
     return cfg
 
 
-def cohort_dates(cfg, day):
-    anchor = date.fromisoformat(cfg["cohort_anchor_date"])
-    if day < anchor:
-        raise ValueError("Cannot backfill observations before the pilot start date")
-    values = [anchor + timedelta(days=n) for n in cfg["cohort_offsets"]]
-    # Simulate replacements from the fixed anchor, so newly added dates also
-    # remain the same on later collection days rather than sliding every day.
-    cursor = anchor
-    while cursor <= day:
-        values = [
-            d
-            for d in values
-            if cursor < d <= cursor + timedelta(days=cfg["horizon_days"] - 1)
-        ]
-        while len(values) < 7:
-            candidate = cursor + timedelta(days=cfg["horizon_days"] - 1)
-            while candidate in values:
-                candidate -= timedelta(days=1)
-            values.append(candidate)
-        cursor += timedelta(days=1)
-    return sorted(values)
-
-
-def build_jobs(cfg, day):
-    jobs = []
-    for travel in cohort_dates(cfg, day):
-        for direction in ("outbound", "inbound"):
-            for destination in cfg["destinations"]:
-                for home in cfg["origin_ids"]:
-                    origin, dest = (
-                        (home, destination["search_id"])
-                        if direction == "outbound"
-                        else (destination["search_id"], home)
-                    )
-                    if set(cfg["points"][origin]["airports"]) & set(
-                        cfg["points"][dest]["airports"]
-                    ):
-                        raise ValueError("Overlapping pilot airports")
-                    key = query_id(origin, dest, travel.isoformat())
-                    jobs.append(
-                        dict(
-                            collection_date=day.isoformat(),
-                            query_id=key,
-                            region_id=destination["region_id"],
-                            region_name=destination["name"],
-                            trip_direction=direction,
-                            search_origin_id=origin,
-                            search_destination_id=dest,
-                            travel_date=travel.isoformat(),
-                            source_url=f"https://www.obilet.com/ucuslar/{origin}-{dest}/{travel:%Y%m%d}/1a/economy/all",
-                            priority=len(jobs),
-                        )
-                    )
-    if len(jobs) != 224 or len({j["query_id"] for j in jobs}) != 224:
-        raise ValueError("Pilot plan must have 224 unique queries")
-    return jobs
-
-
 def ensure_plan(db, cfg, day):
     jobs = build_jobs(cfg, day)
+    state = cycle_state(db, cfg, day)
+    needed = [j for j in jobs if j["query_id"] in state["runnable_ids"]]
     with db:
         db.execute(
             "UPDATE queries SET query_state='missed' WHERE collection_date<? AND query_state IN ('pending','running')",
             (day.isoformat(),),
         )
-        for j in jobs:
+        for j in needed:
             db.execute(
                 "INSERT OR IGNORE INTO queries(collection_date,query_id,region_id,priority,payload) VALUES(?,?,?,?,?)",
                 (
@@ -125,7 +74,7 @@ def ensure_plan(db, cfg, day):
                     json.dumps(j, ensure_ascii=False),
                 ),
             )
-    return jobs
+    return needed
 
 
 def choose_node():
@@ -254,7 +203,7 @@ def collect(cfg, limit):
             return 4
         db = connect()
         day = today()
-        ensure_plan(db, cfg, day)
+        needed = ensure_plan(db, cfg, day)
         p = browser = context = None
         result = 0
         try:
@@ -266,15 +215,16 @@ def collect(cfg, limit):
                     "UPDATE queries SET query_state='pending' WHERE collection_date=? AND query_state='running'",
                     (day.isoformat(),),
                 )
-            used = db.execute(
-                "SELECT coalesce(sum(attempt_count),0) FROM queries WHERE collection_date=?",
-                (day.isoformat(),),
-            ).fetchone()[0]
-            remaining = max(0, cfg["max_queries_per_day"] - used)
-            pending = db.execute(
-                "SELECT * FROM queries WHERE collection_date=? AND query_state='pending' ORDER BY priority LIMIT ?",
-                (day.isoformat(), min(limit, remaining)),
-            ).fetchall()
+            state = cycle_state(db, cfg, day)
+            allowed = {j["query_id"] for j in needed}
+            pending = [
+                r
+                for r in db.execute(
+                    "SELECT * FROM queries WHERE collection_date=? AND query_state='pending' ORDER BY priority",
+                    (day.isoformat(),),
+                )
+                if r["query_id"] in allowed
+            ][: min(limit, cfg["batch_query_limit"], state["runnable_query_count"])]
             if not pending:
                 print(
                     json.dumps(manifest(db, day.isoformat()), ensure_ascii=False),
@@ -457,6 +407,7 @@ def collect(cfg, limit):
             event(db, "collection_finished", "exit_code=" + str(result))
             m = export(db, day.isoformat())
             print(json.dumps(m, ensure_ascii=False), flush=True)
+            print(json.dumps(public_cycle_state(cycle_state(db, cfg, day))), flush=True)
             db.close()
         return result
 
@@ -488,8 +439,8 @@ def main():
             p.stop()
         return 0
     if args.command == "collect":
-        limit = cfg["max_queries_per_day"] if args.all else args.limit
-        if not 1 <= limit <= cfg["max_queries_per_day"]:
+        limit = cfg["batch_query_limit"] if args.all else args.limit
+        if not 1 <= limit <= cfg["batch_query_limit"]:
             raise ValueError("Invalid query limit")
         return collect(cfg, limit)
     db = connect()

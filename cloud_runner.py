@@ -10,7 +10,7 @@ import sys
 import tarfile
 import tempfile
 import time
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -95,23 +95,6 @@ def collect_process(limit, data, log):
             return 130
 
 
-def plan_covered(db, day, jobs):
-    expected = {job["query_id"] for job in jobs}
-    rows = db.execute(
-        """SELECT q.query_id, q.query_state, EXISTS(
-        SELECT 1 FROM offers o WHERE o.collection_date=q.collection_date
-        AND o.query_id=q.query_id
-        AND json_extract(o.payload,'$.analysis_eligible')=1)
-        FROM queries q WHERE q.collection_date=?""",
-        (day,),
-    ).fetchall()
-    return (
-        bool(expected)
-        and {row[0] for row in rows} == expected
-        and all(row[1] in ("ok", "partial") and row[2] for row in rows)
-    )
-
-
 def write_summary(summary):
     # Aggregate counts only. Offer payloads and diagnostic logs stay private.
     print(json.dumps(summary, indent=2))
@@ -132,9 +115,47 @@ def workflow_output(needs_collection):
             output.write(f"needs_collection={str(needs_collection).lower()}\n")
 
 
-def run(limit, check_only=False):
-    if not 1 <= limit <= 224:
-        raise VaultError("Query limit must be between 1 and 224")
+def audit_exports(database, data, day, state):
+    from flight_store import connect, export
+    from audit import audit
+
+    days = sorted(set(state["observation_dates"] + [day.isoformat()]))
+    db = connect(database)
+    try:
+        for index, value in enumerate(days):
+            export(db, value, full_history=index == 0)
+    finally:
+        db.close()
+    reports = [audit(date.fromisoformat(value)) for value in days]
+    result = {"audit_passed": all(r["audit_passed"] for r in reports), "days": reports}
+    (data / "audit.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+    return result
+
+
+def cycle_summary(day, state):
+    return {
+        "collection_date": day.isoformat(),
+        "cycle_start_date": state["cycle_start_date"],
+        "next_cycle_date": state["next_cycle_date"],
+        "travel_date_start": state.get("travel_date_start"),
+        "travel_date_end": state.get("travel_date_end"),
+        "cycle_observation_count": state["offer_count"],
+        "daily_observation_count": state["daily_observation_count"],
+        "covered_query_count": state["covered_query_count"],
+        "planned_query_count": state["query_count"],
+        "coverage_complete": state["coverage_complete"],
+        "expired_query_count": state["expired_query_count"],
+        "cycle_attempt_count": state["cycle_attempt_count"],
+    }
+
+
+def run(limit, check_only=False, cycle_day=None):
+    if not 1 <= limit <= 240:
+        raise VaultError("Batch query limit must be between 1 and 240")
+    if cycle_day is not None and not check_only:
+        raise VaultError(
+            "A different cycle reference is allowed only for read-only checks"
+        )
     vault = GitHubVault()
     with tempfile.TemporaryDirectory(prefix="rotelio-cloud-") as directory:
         working = Path(directory)
@@ -148,42 +169,41 @@ def run(limit, check_only=False):
 
         os.environ["ROTELIO_DATA_DIR"] = str(data)
         sys.path.insert(0, str(ROOT / "transportation"))
-        from daily import today, load_config, build_jobs
-        from flight_store import connect, export, get_control, manifest
-        from audit import audit
+        from daily import today, load_config
+        from flight_plan import cycle_state, public_cycle_state, expected_query_count
+        from flight_store import connect, get_control
 
         day = today()
-        jobs = build_jobs(load_config(), day)
+        cfg = load_config()
         db = connect(database)
         try:
             if get_control(db, "blocked"):
                 raise VaultError(
                     "Stored collection block requires review; no source requests sent"
                 )
-            covered = plan_covered(db, day.isoformat(), jobs)
-            current = (
-                export(db, day.isoformat())
-                if covered
-                else manifest(db, day.isoformat())
-            )
+            state = cycle_state(db, cfg, day, plan_day=cycle_day)
         finally:
             db.close()
-        if covered:
-            report = audit(day)
+        summary = {
+            **cycle_summary(day, state),
+            "total_observation_count": before["offer_count"],
+        }
+        if state["cycle_start_date"] is None or state["coverage_complete"]:
+            report = audit_exports(database, data, day, state)
             if not report["audit_passed"]:
                 raise VaultError(
-                    "Stored daily observations failed audit; no source requests sent"
+                    "Stored observations failed audit; no source requests sent"
                 )
             write_summary(
                 {
-                    "collection_date": day.isoformat(),
+                    **summary,
                     "skipped": True,
-                    "reason": "daily_plan_already_covered",
-                    "total_observation_count": before["offer_count"],
-                    "daily_observation_count": current["offer_count"],
-                    "covered_query_count": len(jobs),
-                    "planned_query_count": len(jobs),
-                    "coverage_complete": True,
+                    "reason": (
+                        "cycle_not_started"
+                        if state["cycle_start_date"] is None
+                        else "refresh_cycle_already_covered"
+                    ),
+                    "next_cycle_planned_query_count": expected_query_count(cfg),
                     "audit_passed": True,
                     "source_requests_sent": 0,
                     "checkpoint_saved": False,
@@ -191,38 +211,42 @@ def run(limit, check_only=False):
             )
             workflow_output(False)
             return 0
-        if check_only:
+        if check_only or not state["runnable_query_count"]:
             write_summary(
                 {
-                    "collection_date": day.isoformat(),
-                    "needs_collection": True,
-                    "total_observation_count": before["offer_count"],
-                    "daily_observation_count": current["offer_count"],
-                    "covered_query_count": current["covered_query_count"],
-                    "planned_query_count": len(jobs),
+                    **summary,
+                    "needs_collection": bool(state["runnable_query_count"]),
+                    "reason": (
+                        "pending_queries"
+                        if state["runnable_query_count"]
+                        else "incomplete_cycle_requires_review"
+                    ),
                     "source_requests_sent": 0,
                 }
             )
-            workflow_output(True)
-            return 0
+            workflow_output(bool(state["runnable_query_count"]))
+            return 0 if check_only else 2
 
         log = data / "collection.log"
         result = collect_process(limit, data, log)
         db = connect(database)
         try:
-            current = export(db, day.isoformat())
+            state = cycle_state(db, cfg, day)
         finally:
             db.close()
-        report = audit(day)
-        (data / "audit.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-
+        report = audit_exports(database, data, day, state)
+        cycle_folder = data / "cycles" / state["cycle_start_date"]
+        cycle_folder.mkdir(parents=True, exist_ok=True)
+        (cycle_folder / "manifest.json").write_text(
+            json.dumps(public_cycle_state(state), indent=2), encoding="utf-8"
+        )
         bundle = working / "observations.tar.gz"
         with tarfile.open(bundle, "w:gz") as archive:
-            # No raw records are uploaded to public workflow artifacts or logs.
             for name in (
                 "flights.csv",
                 "query_prices.csv",
                 "daily",
+                "cycles",
                 "raw",
                 "collection.log",
                 "audit.json",
@@ -233,33 +257,24 @@ def run(limit, check_only=False):
                 if path.exists():
                     archive.add(path, arcname=name)
         published = vault.publish(
-            database,
-            baseline,
-            expected_asset_id=before["asset_id"],
-            bundle=bundle,
+            database, baseline, expected_asset_id=before["asset_id"], bundle=bundle
         )
-        summary = {
-            "collection_date": day.isoformat(),
-            "requested_limit": limit,
-            "collection_exit_code": result,
-            "previous_observation_count": before["offer_count"],
-            "total_observation_count": published["offer_count"],
-            "added_observation_count": published["offer_count"] - before["offer_count"],
-            "daily_observation_count": current["offer_count"],
-            "covered_query_count": current["covered_query_count"],
-            "planned_query_count": current["query_count"],
-            "coverage_complete": current["coverage_complete"],
-            "audit_passed": report["audit_passed"],
-            "checkpoint_saved": True,
-        }
-        write_summary(summary)
+        added = published["offer_count"] - before["offer_count"]
+        write_summary(
+            {
+                **cycle_summary(day, state),
+                "requested_limit": limit,
+                "collection_exit_code": result,
+                "previous_observation_count": before["offer_count"],
+                "total_observation_count": published["offer_count"],
+                "added_observation_count": added,
+                "audit_passed": report["audit_passed"],
+                "checkpoint_saved": True,
+            }
+        )
         if result or not report["audit_passed"]:
             return result or 2
-        if limit == 224 and not current["coverage_complete"]:
-            return 2
-        if limit < 224 and current["offer_count"] == 0:
-            return 2
-        return 0
+        return 0 if added > 0 or state["coverage_complete"] else 2
 
 
 if __name__ == "__main__":

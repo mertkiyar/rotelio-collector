@@ -4,14 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       query_limit:
-        description: 'Queries to process (1 for the initial access check, 224 for the full plan)'
+        description: 'Maximum queries in this batch; earlier batches are retained'
         type: choice
-        options: ['1', '32', '224']
-        default: '1'
+        options: ['1', '120', '240']
+        default: '240'
   schedule:
-    # Turkey time: 09:17 primary, 18:17 recovery check (UTC+3).
-    - cron: '17 6 * * *'
-    - cron: '17 15 * * *'
+    # Turkey: 09:17, 12:17, 15:17, 18:17; 21:17 recovery slot.
+    # Python applies the anchored three-day interval across month boundaries.
+    - cron: '17 6,9,12,15,18 * * *'
 
 permissions:
   contents: read
@@ -31,7 +31,7 @@ jobs:
       PYTHONDONTWRITEBYTECODE: '1'
       FLIGHT_BROWSER_CHANNEL: chromium
       DATA_VAULT_REPOSITORY: ${{ vars.DATA_VAULT_REPOSITORY }}
-      QUERY_LIMIT: ${{ inputs.query_limit || '224' }}
+      QUERY_LIMIT: ${{ inputs.query_limit || '240' }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -47,7 +47,7 @@ jobs:
         run: |
           python -m unittest discover -s transportation/tests
           python -m unittest discover -s tests
-      - name: Check daily coverage
+      - name: Check refresh-cycle coverage
         id: coverage
         env:
           DATA_VAULT_TOKEN: ${{ secrets.DATA_VAULT_TOKEN }}

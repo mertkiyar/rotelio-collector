@@ -8,7 +8,7 @@ import os
 import re
 import urllib.error
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -22,23 +22,31 @@ def today():
     return datetime.now(ZoneInfo("Europe/Istanbul")).date().isoformat()
 
 
-def check_pool():
+def check_pool(cycle_day=None):
     """Use the same private restore, exact-plan check and audit as collection."""
     try:
         captured = io.StringIO()
         with contextlib.redirect_stdout(captured):
-            result = run(224, check_only=True)
+            result = run(240, check_only=True, cycle_day=cycle_day)
         status = json.loads(captured.getvalue())
         healthy = (
             result == 0
-            and status.get("coverage_complete") is True
+            and (
+                status.get("coverage_complete") is True
+                or status.get("reason") == "cycle_not_started"
+            )
             and status.get("audit_passed") is True
         )
         return {
             "healthy": healthy,
             "kind": "daily_complete" if healthy else "daily_incomplete",
-            "collection_date": status["collection_date"],
-            "daily_observation_count": status.get("daily_observation_count", 0),
+            "collection_date": status.get("cycle_start_date")
+            or status["collection_date"],
+            "checked_on": status["collection_date"],
+            "cycle_start_date": status.get("cycle_start_date"),
+            "daily_observation_count": status.get(
+                "cycle_observation_count", status.get("daily_observation_count", 0)
+            ),
             "covered_query_count": status.get("covered_query_count", 0),
             "planned_query_count": status["planned_query_count"],
         }
@@ -108,7 +116,7 @@ class IssueAlerts:
         kind = report["kind"]
         messages = {
             "workflow_failed": "The flight collection workflow did not finish successfully.",
-            "daily_incomplete": "The saved daily pool does not cover the complete approved plan.",
+            "daily_incomplete": "The saved refresh cycle does not cover all 960 planned queries.",
             "health_check_failed": "The private checkpoint, access or data audit could not be verified.",
             "notification_test": "Notification delivery test. No collection failure is being reported.",
         }
@@ -119,12 +127,12 @@ class IssueAlerts:
             + f"@{self.recipient}\n\n"
             + messages[kind]
             + "\n\n"
-            + f"Collection date (Turkey): **{report['collection_date']}**.\n\n"
+            + f"Refresh cycle starting (Turkey): **{report['collection_date']}**.\n\n"
         )
         if "covered_query_count" in report:
             body += (
                 f"Covered queries: **{report['covered_query_count']} / {report['planned_query_count']}**. "
-                + f"Saved daily observations: **{report['daily_observation_count']}**.\n\n"
+                + f"Saved cycle observations: **{report['daily_observation_count']}**.\n\n"
             )
         body += f"[Open workflow run]({run_url})\n\n"
         if kind != "notification_test":
@@ -143,7 +151,7 @@ class IssueAlerts:
                     "POST",
                     path + "/comments",
                     {
-                        "body": "Daily coverage and the private-pool audit passed. "
+                        "body": "Refresh-cycle coverage and the private-pool audit passed. "
                         + f"[Verification run]({run_url}). This alert is resolved."
                     },
                 )
@@ -213,7 +221,13 @@ def main():
         }
         run_url = f"https://github.com/{alerts.repository}/actions/runs/{int(failed_run['id'])}"
     else:
-        report = check_pool()
+        now = datetime.now(ZoneInfo("Europe/Istanbul"))
+        reference = (
+            now.date() - timedelta(days=1)
+            if os.environ.get("GITHUB_EVENT_NAME") == "schedule" and now.hour < 9
+            else None
+        )
+        report = check_pool(cycle_day=reference)
         if (
             os.environ.get("GITHUB_EVENT_NAME") == "workflow_run"
             and not report["healthy"]

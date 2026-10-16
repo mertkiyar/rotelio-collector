@@ -41,15 +41,17 @@ python transportation/daily.py export
 python transportation/audit.py --require-coverage
 ```
 
-`--limit 1` is a small source-access check. `--all` processes the remaining daily
-plan, subject to the daily budget. Search starts are spaced by at least 30
-seconds; the maximum daily attempt count is 240. A full pilot day generally
-takes about two hours.
+`--limit 1` is a small source-access check. `--all` processes at most one 240-query batch of remaining cycle work.
+Search starts are spaced by at least 30 seconds. Daily and cycle attempt
+limits are 992, including a 32-attempt interruption reserve. A 240-query
+batch takes at least two hours; a complete refresh takes at least eight hours.
 
-The seven future departure dates stay fixed between observation days until a
-date leaves the future window. Repeating the command on the same day skips
-processed queries. On a new observation day, the same command adds new prices
-to the existing pool. A process lock prevents concurrent local writers.
+The refresh plan covers every date in a 30-day departure window, in both
+directions, and renews every three days from 17 October 2026. Each cycle has
+960 queries, executed in batches of at most 240. Completed cycle queries are
+not repeated on later batch runs. Recovery observations retain their actual
+calendar date. Old rows are preserved. See the root README for hosted times.
+
 
 ## Persistent data
 

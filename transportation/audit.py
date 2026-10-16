@@ -7,7 +7,7 @@ import json
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
-from daily import load_config, build_jobs, today
+from daily import load_config, today
 from flight_schema import FIELDS, VERSION
 from flight_store import DATA
 
@@ -27,7 +27,15 @@ def audit(day):
         )
         db.row_factory = sqlite3.Row
         cfg = load_config()
-        jobs = {j["query_id"]: j for j in build_jobs(cfg, day)}
+        # Validate against the plan recorded with each observation day. A later
+        # collection-window change must not invalidate genuine historical data.
+        jobs = {
+            r[0]: json.loads(r[1])
+            for r in db.execute(
+                "SELECT query_id,payload FROM queries WHERE collection_date=?",
+                (day.isoformat(),),
+            )
+        }
         records = [
             json.loads(r[0])
             for r in db.execute(

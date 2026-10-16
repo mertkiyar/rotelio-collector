@@ -6,9 +6,9 @@ on:
     types: [completed]
     branches: [main]
   schedule:
-    # Turkey time: 22:17 daily deadline, 23:17 backup health check.
-    - cron: '17 19 * * *'
-    - cron: '17 20 * * *'
+    # Turkey: 23:57 cycle deadline, 08:17 next-morning recovery check.
+    - cron: '57 20 * * *'
+    - cron: '17 5 * * *'
   workflow_dispatch:
     inputs:
       notification_test:

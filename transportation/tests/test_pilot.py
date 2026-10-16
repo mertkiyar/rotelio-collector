@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from daily import (
     load_config,
     build_jobs,
-    cohort_dates,
+    travel_dates,
     ensure_plan,
     validation_requires_stop,
     browser_options,
@@ -29,7 +29,15 @@ class PilotTests(unittest.TestCase):
     def setUp(self):
         self.cfg = load_config()
         self.day = date(2026, 10, 15)
-        self.job = build_jobs(self.cfg, self.day)[0]
+        self.cfg["refresh_anchor_date"] = self.day.isoformat()
+        self.job = next(
+            j
+            for j in build_jobs(self.cfg, self.day)
+            if j["travel_date"] == "2026-10-22"
+            and j["search_origin_id"] == "250_0"
+            and j["region_id"] == "antalya"
+            and j["trip_direction"] == "outbound"
+        )
         self.raw = {
             "source": "obilet",
             "transport_mode": "flight",
@@ -67,35 +75,45 @@ class PilotTests(unittest.TestCase):
 
     def test_complete_approved_scope(self):
         jobs = build_jobs(self.cfg, self.day)
-        self.assertEqual(len(jobs), 224)
-        self.assertEqual(len({x["query_id"] for x in jobs}), 224)
+        self.assertEqual(len(jobs), 960)
+        self.assertEqual(len({x["query_id"] for x in jobs}), 960)
         self.assertEqual(len({x["region_id"] for x in jobs}), 8)
         for region in self.cfg["destinations"]:
             subset = [x for x in jobs if x["region_id"] == region["region_id"]]
-            self.assertEqual(len(subset), 28)
+            self.assertEqual(len(subset), 120)
             self.assertEqual(
                 {x["trip_direction"] for x in subset}, {"outbound", "inbound"}
             )
 
-    def test_fixed_cohort_reobserved_on_next_day(self):
-        self.assertEqual(
-            cohort_dates(self.cfg, self.day), cohort_dates(self.cfg, date(2026, 10, 16))
-        )
-        self.assertEqual(len(cohort_dates(self.cfg, date(2026, 11, 15))), 7)
-        self.assertTrue(
-            all(
-                x > date(2026, 11, 15)
-                for x in cohort_dates(self.cfg, date(2026, 11, 15))
-            )
-        )
+    def test_all_thirty_dates_and_both_directions_are_present(self):
+        from datetime import timedelta
 
-    def test_replacement_dates_remain_fixed_too(self):
-        d1 = cohort_dates(self.cfg, date(2026, 10, 22))
-        d2 = cohort_dates(self.cfg, date(2026, 10, 23))
-        self.assertIn(date(2026, 12, 20), d1)
-        self.assertEqual(d1, d2)
-        with self.assertRaises(ValueError):
-            cohort_dates(self.cfg, date(2026, 10, 14))
+        expected = {self.day + timedelta(days=i) for i in range(1, 31)}
+        self.assertEqual(set(travel_dates(self.cfg, self.day)), expected)
+        for value in expected:
+            jobs = [
+                j
+                for j in build_jobs(self.cfg, self.day)
+                if j["travel_date"] == value.isoformat()
+            ]
+            self.assertEqual(len(jobs), 32)
+            self.assertEqual(sum(j["trip_direction"] == "outbound" for j in jobs), 16)
+            self.assertEqual(sum(j["trip_direction"] == "inbound" for j in jobs), 16)
+
+    def test_cycle_stays_fixed_for_three_days_and_moves_across_months(self):
+        from datetime import timedelta
+
+        for offset in (0, 15, 18, 45):
+            start = self.day + timedelta(days=offset)
+            self.assertEqual(
+                travel_dates(self.cfg, start),
+                travel_dates(self.cfg, start + timedelta(days=2)),
+            )
+            self.assertNotEqual(
+                travel_dates(self.cfg, start),
+                travel_dates(self.cfg, start + timedelta(days=3)),
+            )
+        self.assertEqual(travel_dates(self.cfg, date(2026, 10, 14)), [])
 
     def test_exact_price_and_overnight_clock(self):
         _, rows, bad = normalize(self.raw, self.job, self.cfg)
@@ -173,7 +191,7 @@ class PilotTests(unittest.TestCase):
             for _ in range(2):
                 save_query(db, self.job, "ok", rows, bad)
             self.assertEqual(db.execute("SELECT count(*) FROM offers").fetchone()[0], 1)
-            self.assertEqual(manifest(db, "2026-10-15")["query_count"], 224)
+            self.assertEqual(manifest(db, "2026-10-15")["query_count"], 960)
             db.close()
 
     def test_csv_schema_and_formula_handling(self):
@@ -247,7 +265,11 @@ class PilotTests(unittest.TestCase):
             save_query(db, self.job, "ok", first, bad)
             next_day = date(2026, 10, 16)
             ensure_plan(db, self.cfg, next_day)
-            job = build_jobs(self.cfg, next_day)[0]
+            job = next(
+                j
+                for j in build_jobs(self.cfg, next_day)
+                if j["query_id"] == self.job["query_id"]
+            )
             raw = copy.deepcopy(self.raw)
             raw["collected_at"] = "2026-10-16T18:00:00+00:00"
             _, second, bad = normalize(raw, job, self.cfg)

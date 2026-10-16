@@ -10,36 +10,51 @@ a separate private repository.
 
 Istanbul (IST and SAW) and Ankara (ESB) connect to eight pilot regions:
 Antalya, Izmir/Cesme, Bodrum, Fethiye, Trabzon, Nevsehir/Cappadocia, Gaziantep
-and Erzurum. Both directions across seven selected future departure dates
-produce 224 daily searches. Search starts remain at least 30 seconds apart.
-This is a sampled date plan, not a scan of every date or route in Turkey.
+and Erzurum. Every refresh covers both directions for **all 30 consecutive
+future departure dates**: 2 origins × 8 destinations × 2 directions × 30 dates =
+960 searches. The 48-field offer format is unchanged. Historical observations
+remain in the same cumulative pool.
 
-The primary schedule is 06:17 UTC (09:17 in Turkey), with a recovery check at
-15:17 UTC (18:17 in Turkey). GitHub can delay or drop scheduled runs; these are
-target times rather than an exact-time guarantee. Manual runs support a
-one-query access check, a 32-query batch or the full 224-query plan. A full day
-generally takes about two hours.
+Refresh cycles begin on **17 October 2026** and repeat every three calendar days
+(17, 20, 23 October, and so on). Python computes the anchored interval across
+month boundaries; cron day-of-month shortcuts are not used. Each cycle fixes
+its departure window to the following 30 dates. The first window is 18 October
+through 16 November. This is data sampling and does not restrict UI date choices.
 
-Each invocation checks the restored pool against the exact current daily plan.
-If every planned query has an eligible observation and the offline audit passes,
-it exits before installing the browser or contacting the flight source. No new
-checkpoint is uploaded for an already covered day. Otherwise it collects the
-remaining pending queries within the existing daily budget. A stored access or
-validation block stops both schedules until reviewed; recovery never clears it.
+Four 240-query batches are scheduled for 09:17, 12:17, 15:17 and 18:17 Turkey
+time. A 21:17 recovery slot can process outstanding work. Each batch restores
+the last committed private checkpoint and publishes its own version afterward.
+Search starts remain at least 30 seconds apart, so 960 searches take at least
+eight hours in total, with additional loading time. Actual GitHub start times
+can be delayed or dropped. Runs share a single writer concurrency group.
+
+A completed cycle causes subsequent invocations to exit before installing a
+browser, sending source requests or uploading another checkpoint. Checks still
+run on intervening days so delayed work can resume. Fresh cycles re-observe all
+30 dates, including overlap with the preceding window. Up to 32 extra attempts
+are reserved for interrupted work; both daily and cycle limits are 992 attempts.
+Source-access and validation blocks are never automatically reset.
+
+Coverage is measured over the complete cycle, using genuine observation dates
+from its three calendar days. A resumed batch retains its actual capture date;
+it is never backdated to the first day. Missed departure dates and empty or
+blocked results remain missing, not zero-priced offers. They prevent full-cycle
+coverage. Earlier seven-date observations remain valid history but cannot count
+as coverage of a new cycle.
 
 ## Collection alerts
 
 A separate monitor workflow runs after collection completes and checks the
-private pool again at 22:17 and 23:17 Turkey time. Failed or cancelled collection
+private pool again at 23:57 Turkey time and 08:17 the following morning. Failed or cancelled collection
 runs raise an immediate alert. The late checks detect a missing or incomplete
-daily plan even when the collection workflow never started. They never collect
+refresh cycle even when the collection workflow never started. They never collect
 flights or change the private checkpoint.
 
 Alerts use an issue assigned to and mentioning the repository owner. The issue
 contains aggregate coverage counts and a run link, without flight records or
-private diagnostic details. Repeated checks of the same problem on the same
-day do not post another notification. A new day or different problem updates
-the existing issue; a verified complete day closes it.
+private diagnostic details. Repeated checks of the same problem for the same
+cycle do not post another notification. A new cycle or different problem updates
+the existing issue; a verified complete cycle closes it.
 
 GitHub inbox and email delivery depend on the owner's notification preferences.
 See [SETUP.md](SETUP.md#notification-delivery). The monitor has repository-local
@@ -77,7 +92,7 @@ The required repository settings are:
 | --- | --- | --- |
 | `DATA_VAULT_TOKEN` | Actions secret | Fine-grained token limited to the private data repository, Contents read/write |
 | `DATA_VAULT_REPOSITORY` | Actions variable | Private storage repository in `owner/repository` format |
-| `COLLECTION_ENABLED` | Actions variable | `true` enables the daily schedule after a successful hosted access check |
+| `COLLECTION_ENABLED` | Actions variable | `true` enables the refresh schedule after a successful hosted access check |
 
 The collection job is skipped if this code repository is private. Scheduled
 collection remains disabled until `COLLECTION_ENABLED=true`. Manual runs can

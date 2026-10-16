@@ -84,20 +84,29 @@ until a genuine cloud query has succeeded.
 
 ## Daily operation
 
-After the access check, set `COLLECTION_ENABLED=true`. The daily schedule runs at
-06:17 UTC (09:17 Turkey time), with a recovery check at 15:17 UTC (18:17 Turkey
-time). Both use the same retained pool and the current Turkey calendar date.
-For the rest of the current day's plan, manually run query limit `224`.
-Completed queries on that observation day are skipped.
+After the access check, set `COLLECTION_ENABLED=true`. The schedule checks for
+work at 09:17, 12:17, 15:17, 18:17 and 21:17 Turkey time. Refresh cycles start
+on 17 October 2026, then every three days. The 960-query plan covers each of the
+following 30 departure dates in both directions. Four batches of up to 240
+queries complete the nominal plan; the last slot provides recovery time.
 
-The coverage check restores and validates the private pool before installing
-the browser. When the exact daily plan is already covered and the audit passes,
-`skipped=true` and `reason=daily_plan_already_covered` appear in the summary.
-Browser installation, source collection and checkpoint upload are skipped.
-An incomplete morning run can leave pending queries for the evening check;
-previous observations remain intact. Source-access and validation blocks are
-never cleared automatically. An incomplete plan still fails the full-run check
-instead of being labelled complete.
+The preflight restores the private pool and checks the complete refresh cycle.
+If coverage and audit pass, `skipped=true` and
+`reason=refresh_cycle_already_covered` appear in the summary. Browser setup,
+source collection and checkpoint upload are skipped. Before the first cycle,
+`reason=cycle_not_started` is expected and no source request is sent.
+
+Each completed batch publishes a private checkpoint. Subsequent batches skip
+queries already covered in that cycle, including those observed on an earlier
+calendar day. A new cycle starts fresh coverage without deleting the old pool.
+A successful partial batch is not full-cycle completion. Review the separate
+`covered_query_count` / `planned_query_count` values. The final target is 960.
+
+The 21:17 slot and subsequent days can resume pending work. A departed date that
+was never observed stays missing, so coverage remains incomplete. The source
+block flag is never cleared automatically. There are at most 992 attempts per
+calendar day and per cycle, including a 32-attempt interruption reserve.
+Manual runs accept limits 1, 120 or 240 and obey the same plan and budgets.
 
 Stop the old local scheduler before enabling regular cloud collection. Two
 independent pool copies must not both act as the current writer. Keep the local
@@ -120,10 +129,10 @@ occasional independent downloaded backup as well.
 ### Notification delivery
 
 The `Monitor daily collection` workflow raises an assigned issue mentioning the
-repository owner after a failed/cancelled collection, or when the 22:17/23:17
-Turkey health checks find a missing day, incomplete coverage, an access block or
+repository owner after a failed/cancelled collection, or when the 23:57 or next-morning 08:17
+Turkey health checks find a missing cycle, incomplete coverage, an access block or
 an unverifiable private checkpoint. It can detect a missed collection schedule
-independently of the collection workflow. When coverage and audit pass again,
+independently of the collection workflow. When cycle coverage and audit pass again,
 it closes the active alert. These checks do not query the flight source.
 
 To receive an email as well as a GitHub inbox notification:
