@@ -30,7 +30,7 @@ class MonitorTests(unittest.TestCase):
             "collection_date": day,
             "covered_query_count": 959,
             "planned_query_count": 960,
-            "daily_observation_count": 6000,
+            "cycle_observation_count": 6000,
         }
 
     def test_missing_day_is_unhealthy_even_when_preflight_exits_successfully(self):

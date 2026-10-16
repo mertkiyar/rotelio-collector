@@ -44,7 +44,7 @@ def check_pool(cycle_day=None):
             or status["collection_date"],
             "checked_on": status["collection_date"],
             "cycle_start_date": status.get("cycle_start_date"),
-            "daily_observation_count": status.get(
+            "cycle_observation_count": status.get(
                 "cycle_observation_count", status.get("daily_observation_count", 0)
             ),
             "covered_query_count": status.get("covered_query_count", 0),
@@ -132,7 +132,7 @@ class IssueAlerts:
         if "covered_query_count" in report:
             body += (
                 f"Covered queries: **{report['covered_query_count']} / {report['planned_query_count']}**. "
-                + f"Saved cycle observations: **{report['daily_observation_count']}**.\n\n"
+                + f"Saved cycle observations: **{report['cycle_observation_count']}**.\n\n"
             )
         body += f"[Open workflow run]({run_url})\n\n"
         if kind != "notification_test":
