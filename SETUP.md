@@ -117,6 +117,39 @@ occasional independent downloaded backup as well.
 
 ## Scheduling and costs
 
+### Notification delivery
+
+The `Monitor daily collection` workflow raises an assigned issue mentioning the
+repository owner after a failed/cancelled collection, or when the 22:17/23:17
+Turkey health checks find a missing day, incomplete coverage, an access block or
+an unverifiable private checkpoint. It can detect a missed collection schedule
+independently of the collection workflow. When coverage and audit pass again,
+it closes the active alert. These checks do not query the flight source.
+
+To receive an email as well as a GitHub inbox notification:
+
+1. Open [GitHub notification settings](https://github.com/settings/notifications).
+2. Under `Subscriptions`, enable `Participating, @mentions and custom` delivery
+   by both `On GitHub` and `Email`.
+3. Check that the chosen notification email address is verified and accessible.
+   GitHub Mobile push notifications can also be enabled on the device.
+4. In Actions, run `Monitor daily collection` with `notification_test=true`.
+   This creates and closes a clearly labelled test issue, without reporting a
+   collection failure or touching the private data pool.
+
+The test confirms GitHub accepted the assigned mention; only the recipient can
+confirm email or device delivery. Do not mute this repository or unsubscribe
+from unresolved collection alerts if notifications are needed.
+
+The monitor job requires `issues: write` for its automatic `GITHUB_TOKEN`.
+The private vault token remains limited to the data repository; no Issues or
+Actions permission needs to be added to that personal token. If issue creation
+is blocked, the monitor run fails instead of reporting successful delivery.
+GitHub can delay monitor schedules too. Complete GitHub outages or disabled
+monitor scheduling require a separate external monitoring service for detection.
+
+### Service lifecycle
+
 The laptop can be asleep or off after hosted scheduling has been verified and
 enabled. No local browser session is needed by the hosted workflow. Scheduled
 Actions can be delayed or dropped and require the workflow on the default

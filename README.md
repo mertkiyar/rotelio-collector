@@ -27,6 +27,28 @@ checkpoint is uploaded for an already covered day. Otherwise it collects the
 remaining pending queries within the existing daily budget. A stored access or
 validation block stops both schedules until reviewed; recovery never clears it.
 
+## Collection alerts
+
+A separate monitor workflow runs after collection completes and checks the
+private pool again at 22:17 and 23:17 Turkey time. Failed or cancelled collection
+runs raise an immediate alert. The late checks detect a missing or incomplete
+daily plan even when the collection workflow never started. They never collect
+flights or change the private checkpoint.
+
+Alerts use an issue assigned to and mentioning the repository owner. The issue
+contains aggregate coverage counts and a run link, without flight records or
+private diagnostic details. Repeated checks of the same problem on the same
+day do not post another notification. A new day or different problem updates
+the existing issue; a verified complete day closes it.
+
+GitHub inbox and email delivery depend on the owner's notification preferences.
+See [SETUP.md](SETUP.md#notification-delivery). The monitor has repository-local
+Issues write permission; it uses the existing private-vault secret only for the
+read-only health check. No additional credential or paid service is required.
+Both workflows depend on GitHub Actions: an outage or disabled scheduling that
+prevents every monitor run also prevents these alerts. An independent external
+dead-man monitor would be needed to cover that failure mode.
+
 ## Private storage
 
 Before each run the collector restores the latest private SQLite checkpoint.

@@ -149,7 +149,7 @@ def run(limit, check_only=False):
         os.environ["ROTELIO_DATA_DIR"] = str(data)
         sys.path.insert(0, str(ROOT / "transportation"))
         from daily import today, load_config, build_jobs
-        from flight_store import connect, export, get_control
+        from flight_store import connect, export, get_control, manifest
         from audit import audit
 
         day = today()
@@ -161,7 +161,11 @@ def run(limit, check_only=False):
                     "Stored collection block requires review; no source requests sent"
                 )
             covered = plan_covered(db, day.isoformat(), jobs)
-            current = export(db, day.isoformat()) if covered else None
+            current = (
+                export(db, day.isoformat())
+                if covered
+                else manifest(db, day.isoformat())
+            )
         finally:
             db.close()
         if covered:
@@ -193,6 +197,8 @@ def run(limit, check_only=False):
                     "collection_date": day.isoformat(),
                     "needs_collection": True,
                     "total_observation_count": before["offer_count"],
+                    "daily_observation_count": current["offer_count"],
+                    "covered_query_count": current["covered_query_count"],
                     "planned_query_count": len(jobs),
                     "source_requests_sent": 0,
                 }

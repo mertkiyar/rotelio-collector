@@ -1,0 +1,61 @@
+name: Monitor daily collection
+
+on:
+  workflow_run:
+    workflows: ['Collect flight observations']
+    types: [completed]
+    branches: [main]
+  schedule:
+    # Turkey time: 22:17 daily deadline, 23:17 backup health check.
+    - cron: '17 19 * * *'
+    - cron: '17 20 * * *'
+  workflow_dispatch:
+    inputs:
+      notification_test:
+        description: 'Send a clearly labelled notification test without collecting flights'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: flight-collection-alerts
+  cancel-in-progress: false
+
+jobs:
+  check:
+    if: >-
+      github.event.repository.private == false &&
+      vars.COLLECTION_ENABLED == 'true' &&
+      (github.event_name != 'workflow_run' ||
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      DATA_VAULT_REPOSITORY: ${{ vars.DATA_VAULT_REPOSITORY }}
+      ALERT_RECIPIENT: ${{ github.repository_owner }}
+    steps:
+      # Always use trusted default-branch code, never the triggering run's files.
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Run offline monitor tests
+        run: python -m unittest discover -s tests -p test_monitor.py
+      - name: Check coverage and notify
+        if: ${{ inputs.notification_test != true }}
+        env:
+          DATA_VAULT_TOKEN: ${{ secrets.DATA_VAULT_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python monitor.py
+      - name: Send notification test
+        if: ${{ inputs.notification_test == true }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python monitor.py --test-notification
