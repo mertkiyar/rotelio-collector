@@ -135,6 +135,11 @@ an unverifiable private checkpoint. It can detect a missed collection schedule
 independently of the collection workflow. When cycle coverage and audit pass again,
 it closes the active alert. These checks do not query the flight source.
 
+The morning check retains its previous-day reference even if GitHub starts it
+after 09:00. A late night check crossing midnight retains the preceding-day
+reference too. Manual health checks before 23:57 review the last due cycle.
+A cycle that has not reached its collection deadline is not reported missing.
+
 To receive an email as well as a GitHub inbox notification:
 
 1. Open [GitHub notification settings](https://github.com/settings/notifications).

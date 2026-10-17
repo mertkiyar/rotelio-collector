@@ -22,6 +22,16 @@ def today():
     return datetime.now(ZoneInfo("Europe/Istanbul")).date().isoformat()
 
 
+def scheduled_reference_day(now, schedule=None):
+    # Select the intended check, not the hour at which GitHub finally starts it.
+    # The morning slot always reviews the preceding calendar day. A delayed
+    # 23:57 slot running after midnight must also keep its preceding-day target.
+    if schedule == "17 5 * * *":
+        return now.date() - timedelta(days=1)
+    deadline_reached = (now.hour, now.minute) >= (23, 57)
+    return now.date() if deadline_reached else now.date() - timedelta(days=1)
+
+
 def check_pool(cycle_day=None):
     """Use the same private restore, exact-plan check and audit as collection."""
     try:
@@ -39,7 +49,11 @@ def check_pool(cycle_day=None):
         )
         return {
             "healthy": healthy,
-            "kind": "daily_complete" if healthy else "daily_incomplete",
+            "kind": (
+                "cycle_not_started"
+                if status.get("reason") == "cycle_not_started"
+                else "daily_complete" if healthy else "daily_incomplete"
+            ),
             "collection_date": status.get("cycle_start_date")
             or status["collection_date"],
             "checked_on": status["collection_date"],
@@ -223,11 +237,16 @@ def main():
     else:
         now = datetime.now(ZoneInfo("Europe/Istanbul"))
         reference = (
-            now.date() - timedelta(days=1)
-            if os.environ.get("GITHUB_EVENT_NAME") == "schedule" and now.hour < 9
+            scheduled_reference_day(now, event.get("schedule"))
+            if os.environ.get("GITHUB_EVENT_NAME") in ("schedule", "workflow_dispatch")
             else None
         )
         report = check_pool(cycle_day=reference)
+        if report["kind"] == "cycle_not_started":
+            # There is no completed-cycle deadline to assess yet. In particular,
+            # this does not establish recovery of an alert for a later cycle.
+            print(json.dumps({"notification": "no_cycle_due_yet", **report}))
+            return 0
         if (
             os.environ.get("GITHUB_EVENT_NAME") == "workflow_run"
             and not report["healthy"]

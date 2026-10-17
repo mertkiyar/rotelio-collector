@@ -5,10 +5,34 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from monitor import IssueAlerts, MARKER, check_pool, main
+from monitor import IssueAlerts, MARKER, check_pool, main, scheduled_reference_day
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 
 class MonitorTests(unittest.TestCase):
+    def test_delayed_morning_check_keeps_previous_day_reference(self):
+        now = datetime(2026, 10, 17, 12, 25, tzinfo=ZoneInfo("Europe/Istanbul"))
+        self.assertEqual(scheduled_reference_day(now, "17 5 * * *"), date(2026, 10, 16))
+        self.assertEqual(
+            scheduled_reference_day(now.replace(day=20), "17 5 * * *"),
+            date(2026, 10, 19),
+        )
+
+    def test_delayed_night_check_does_not_assess_new_cycle_before_deadline(self):
+        now = datetime(2026, 10, 17, 2, 4, tzinfo=ZoneInfo("Europe/Istanbul"))
+        self.assertEqual(
+            scheduled_reference_day(now, "57 20 * * *"), date(2026, 10, 16)
+        )
+        self.assertEqual(
+            scheduled_reference_day(now.replace(hour=23, minute=58), "57 20 * * *"),
+            date(2026, 10, 17),
+        )
+
+    def test_manual_check_before_deadline_reviews_last_due_cycle(self):
+        now = datetime(2026, 10, 17, 12, 25, tzinfo=ZoneInfo("Europe/Istanbul"))
+        self.assertEqual(scheduled_reference_day(now), date(2026, 10, 16))
+
     def client(self, existing=None):
         with patch.dict(
             os.environ,
@@ -203,6 +227,34 @@ class MonitorTests(unittest.TestCase):
             report, link = client.sync.call_args.args
             self.assertEqual(report["kind"], "workflow_failed")
             self.assertTrue(link.endswith("/42"))
+
+    def test_delayed_morning_event_does_not_alert_or_claim_recovery(self):
+        with tempfile.TemporaryDirectory() as directory:
+            event = Path(directory) / "event.json"
+            event.write_text(json.dumps({"schedule": "17 5 * * *"}))
+            client = Mock(repository="example/collector")
+            late = datetime(2026, 10, 17, 12, 25, tzinfo=ZoneInfo("Europe/Istanbul"))
+            with patch("monitor.IssueAlerts", return_value=client), patch(
+                "monitor.datetime"
+            ) as clock, patch(
+                "monitor.check_pool",
+                return_value={"healthy": True, "kind": "cycle_not_started"},
+            ) as check, patch(
+                "sys.argv", ["monitor.py"]
+            ), patch.dict(
+                os.environ,
+                {
+                    "GITHUB_EVENT_NAME": "schedule",
+                    "GITHUB_EVENT_PATH": str(event),
+                    "GITHUB_RUN_ID": "43",
+                },
+            ), patch(
+                "builtins.print"
+            ):
+                clock.now.return_value = late
+                self.assertEqual(main(), 0)
+            check.assert_called_once_with(cycle_day=date(2026, 10, 16))
+            client.sync.assert_not_called()
 
     def test_successful_partial_batch_waits_for_deadline_but_nightly_check_alerts(self):
         for event_name, conclusion, notified in (
