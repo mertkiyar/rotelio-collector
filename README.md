@@ -21,9 +21,12 @@ month boundaries; cron day-of-month shortcuts are not used. Each cycle fixes
 its departure window to the following 30 dates. The first window is 18 October
 through 16 November. This is data sampling and does not restrict UI date choices.
 
-Four 240-query batches are scheduled for 09:17, 12:17, 15:17 and 18:17 Turkey
-time. A 21:17 recovery slot can process outstanding work. Each batch restores
+Scheduled checks run at 09:17, 12:17, 15:17, 18:17 and 21:17 Turkey time.
+Each scheduled workflow can run four 240-query batches serially, so an active
+refresh does not need four separate cron events to arrive. Each batch restores
 the last committed private checkpoint and publishes its own version afterward.
+Manual dispatch still runs one batch at the selected limit. A failed batch
+stops the remaining jobs, preserving the stored access-block state.
 Search starts remain at least 30 seconds apart, so 960 searches take at least
 eight hours in total, with additional loading time. Actual GitHub start times
 can be delayed or dropped. Runs share a single writer concurrency group.
@@ -50,6 +53,11 @@ runs raise an immediate alert. The late checks detect a missing or incomplete
 refresh cycle even when the collection workflow never started. They never collect
 flights or change the private checkpoint.
 
+A late check defers its final coverage decision while a collector for the same
+three-day cycle is running or queued. It does not mark the partial pool complete
+or close an existing alert. The writer's completion and the next scheduled check
+reassess saved coverage. Work for a newer cycle cannot defer an older alert.
+
 Alerts use an issue assigned to and mentioning the repository owner. The issue
 contains aggregate coverage counts and a run link, without flight records or
 private diagnostic details. Repeated checks of the same problem for the same
@@ -59,7 +67,8 @@ the existing issue; a verified complete cycle closes it.
 GitHub inbox and email delivery depend on the owner's notification preferences.
 See [SETUP.md](SETUP.md#notification-delivery). The monitor has repository-local
 Issues write permission; it uses the existing private-vault secret only for the
-read-only health check. No additional credential or paid service is required.
+read-only health check. Actions read permission identifies active collection
+runs. No additional credential or paid service is required.
 Both workflows depend on GitHub Actions: an outage or disabled scheduling that
 prevents every monitor run also prevents these alerts. An independent external
 dead-man monitor would be needed to cover that failure mode.

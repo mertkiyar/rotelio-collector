@@ -10,6 +10,7 @@ on:
         default: '240'
   schedule:
     # Turkey: 09:17, 12:17, 15:17, 18:17; 21:17 recovery slot.
+    # Any scheduled start can finish all four batches without another cron event.
     # Python applies the anchored three-day interval across month boundaries.
     - cron: '17 6,9,12,15,18 * * *'
 
@@ -22,11 +23,17 @@ concurrency:
 
 jobs:
   collect:
+    name: Collect batch ${{ matrix.batch }}
     # Private execution must not consume the owner's included private minutes.
     # Scheduling stays disabled until the first hosted access check succeeds.
     if: ${{ github.event.repository.private == false && (github.event_name == 'workflow_dispatch' || vars.COLLECTION_ENABLED == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    strategy:
+      max-parallel: 1
+      fail-fast: true
+      matrix:
+        batch: ${{ fromJSON(github.event_name == 'schedule' && '[1,2,3,4]' || '[1]') }}
     env:
       PYTHONDONTWRITEBYTECODE: '1'
       FLIGHT_BROWSER_CHANNEL: chromium

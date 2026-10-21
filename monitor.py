@@ -8,7 +8,7 @@ import os
 import re
 import urllib.error
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -125,6 +125,29 @@ class IssueAlerts:
             if len(issues) < 100:
                 return None
             page += 1
+
+    def collection_in_progress(self, report):
+        """A live writer's uncommitted batch cannot be assessed as final coverage."""
+        start = date.fromisoformat(report['collection_date'])
+        end = start + timedelta(days=2)
+        for status in ('in_progress', 'queued', 'waiting', 'pending'):
+            page = 1
+            while True:
+                runs = self.request(
+                    'GET',
+                    self.base + '/actions/workflows/collect.yml/runs'
+                    + f'?branch=main&status={status}&per_page=100&page={page}',
+                )['workflow_runs']
+                for run in runs:
+                    created = datetime.fromisoformat(
+                        run['created_at'].replace('Z', '+00:00')
+                    ).astimezone(ZoneInfo('Europe/Istanbul')).date()
+                    if start <= created <= end:
+                        return True
+                if len(runs) < 100:
+                    break
+                page += 1
+        return False
 
     def body(self, report, run_url):
         kind = report["kind"]
@@ -253,6 +276,14 @@ def main():
         ):
             # A successful small manual batch may deliberately leave a partial day.
             print(json.dumps({"notification": "waiting_for_daily_deadline", **report}))
+            return 0
+        if (
+            report['kind'] == 'daily_incomplete'
+            and alerts.collection_in_progress(report)
+        ):
+            # Keep any existing alert open. A completed writer or the next
+            # scheduled check will reassess the committed pool.
+            print(json.dumps({'notification': 'collection_in_progress', **report}))
             return 0
     result = alerts.sync(report, run_url)
     print(json.dumps({"notification": result, **report}))

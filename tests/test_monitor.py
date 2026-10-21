@@ -202,6 +202,46 @@ class MonitorTests(unittest.TestCase):
         ]
         self.assertEqual(client.open_alert()["number"], 2)
 
+    def test_live_writer_defers_only_its_own_refresh_cycle(self):
+        for created, expected in (
+            ('2026-10-20T21:42:49Z', True),
+            ('2026-10-22T22:00:00Z', False),
+            ('2026-10-19T12:00:00Z', False),
+        ):
+            with self.subTest(created=created):
+                client = self.client()
+                client.request.side_effect = lambda method, path: {
+                    'workflow_runs': (
+                        [{'created_at': created}]
+                        if 'status=in_progress&' in path else []
+                    )
+                }
+                self.assertEqual(
+                    client.collection_in_progress(self.report(day='2026-10-20')),
+                    expected,
+                )
+
+    def test_no_live_writer_does_not_suppress_missing_coverage(self):
+        client = self.client()
+        client.request.return_value = {'workflow_runs': []}
+        self.assertFalse(client.collection_in_progress(self.report()))
+
+    def test_nightly_check_preserves_existing_alert_while_writer_is_running(self):
+        client = Mock(repository='example/collector')
+        client.collection_in_progress.return_value = True
+        report = self.report()
+        with patch('monitor.IssueAlerts', return_value=client), patch(
+            'monitor.check_pool', return_value=report
+        ), patch('sys.argv', ['monitor.py']), patch.dict(
+            os.environ,
+            {'GITHUB_EVENT_NAME': 'schedule', 'GITHUB_RUN_ID': '43', 'GITHUB_EVENT_PATH': ''},
+        ), patch('builtins.print') as output:
+            self.assertEqual(main(), 0)
+        client.sync.assert_not_called()
+        result = json.loads(output.call_args.args[0])
+        self.assertEqual(result['notification'], 'collection_in_progress')
+        self.assertFalse(result['healthy'])
+
     def test_failed_collection_notifies_without_needing_private_vault_access(self):
         with tempfile.TemporaryDirectory() as directory:
             event = Path(directory) / "event.json"
@@ -270,6 +310,7 @@ class MonitorTests(unittest.TestCase):
                 )
                 client = Mock(repository="example/collector")
                 client.sync.return_value = "created"
+                client.collection_in_progress.return_value = False
                 with patch("monitor.IssueAlerts", return_value=client), patch(
                     "monitor.check_pool", return_value=self.report()
                 ), patch("sys.argv", ["monitor.py"]), patch.dict(
