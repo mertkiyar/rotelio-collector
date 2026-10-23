@@ -60,9 +60,15 @@ reassess saved coverage. Work for a newer cycle cannot defer an older alert.
 
 Alerts use an issue assigned to and mentioning the repository owner. The issue
 contains aggregate coverage counts and a run link, without flight records or
-private diagnostic details. Repeated checks of the same problem for the same
-cycle do not post another notification. A new cycle or different problem updates
-the existing issue; a verified complete cycle closes it.
+private diagnostic details. Repeated checks of the same unresolved cycle do not
+post another notification, even when a follow-up check changes its diagnosis.
+A new cycle updates the existing issue; a verified complete cycle closes it.
+A delayed healthy check for an older cycle cannot close a newer incident.
+
+Delivering or deduplicating an alert is a successful monitor execution, while its
+JSON report still says `healthy=false` and the issue remains open. Notification
+API failures still fail the job. This avoids an additional failed-Actions
+notification for every repeated health alert.
 
 GitHub inbox and email delivery depend on the owner's notification preferences.
 See [SETUP.md](SETUP.md#notification-delivery). The monitor has repository-local

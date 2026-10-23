@@ -177,6 +177,28 @@ class MonitorTests(unittest.TestCase):
         )
         client.request.assert_not_called()
 
+    def test_changed_diagnosis_does_not_repeat_same_cycle_notification(self):
+        client = self.client({
+            "number": 1,
+            "body": MARKER + "\n<!-- alert-key:2026-10-16:workflow_failed -->",
+        })
+        self.assertEqual(client.sync(
+            self.report(kind="health_check_failed"),
+            "https://github.com/example/collector/actions/runs/2",
+        ), "already_notified")
+        client.request.assert_not_called()
+
+    def test_old_healthy_check_cannot_close_a_newer_incident(self):
+        client = self.client({
+            "number": 1,
+            "body": MARKER + "\n<!-- alert-key:2026-10-23:workflow_failed -->",
+        })
+        self.assertEqual(client.sync(
+            {"healthy": True, "collection_date": "2026-10-20"},
+            "https://github.com/example/collector/actions/runs/2",
+        ), "newer_alert_preserved")
+        client.request.assert_not_called()
+
     def test_notification_test_cannot_replace_or_close_a_real_alert(self):
         client = self.client({"number": 1, "body": MARKER})
         client.request.return_value = {"number": 2}
@@ -262,11 +284,43 @@ class MonitorTests(unittest.TestCase):
             ), patch(
                 "builtins.print"
             ):
-                self.assertEqual(main(), 2)
+                self.assertEqual(main(), 0)
             check.assert_not_called()
             report, link = client.sync.call_args.args
             self.assertEqual(report["kind"], "workflow_failed")
             self.assertTrue(link.endswith("/42"))
+
+    def test_reported_unhealthy_pool_does_not_fail_the_monitor_job(self):
+        for result in ("created", "already_notified"):
+            with self.subTest(notification=result):
+                client = Mock(repository="example/collector")
+                client.collection_in_progress.return_value = False
+                client.sync.return_value = result
+                with patch("monitor.IssueAlerts", return_value=client), patch(
+                    "monitor.check_pool", return_value=self.report()
+                ), patch("sys.argv", ["monitor.py"]), patch.dict(os.environ, {
+                    "GITHUB_EVENT_NAME": "schedule",
+                    "GITHUB_EVENT_PATH": "",
+                    "GITHUB_RUN_ID": "43",
+                }), patch("builtins.print") as output:
+                    self.assertEqual(main(), 0)
+                report = json.loads(output.call_args.args[0])
+                self.assertFalse(report["healthy"])
+                self.assertEqual(report["notification"], result)
+
+    def test_notification_api_failure_is_not_reported_as_success(self):
+        client = Mock(repository="example/collector")
+        client.collection_in_progress.return_value = False
+        client.sync.side_effect = RuntimeError("Notification API failed: HTTP 403")
+        with patch("monitor.IssueAlerts", return_value=client), patch(
+            "monitor.check_pool", return_value=self.report()
+        ), patch("sys.argv", ["monitor.py"]), patch.dict(os.environ, {
+            "GITHUB_EVENT_NAME": "schedule",
+            "GITHUB_EVENT_PATH": "",
+            "GITHUB_RUN_ID": "43",
+        }):
+            with self.assertRaises(RuntimeError):
+                main()
 
     def test_delayed_morning_event_does_not_alert_or_claim_recovery(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -183,6 +183,12 @@ class IssueAlerts:
         existing = self.open_alert()
         if report["healthy"]:
             if existing:
+                previous = re.search(
+                    r"<!-- alert-key:(\d{4}-\d{2}-\d{2}):",
+                    existing.get("body") or "",
+                )
+                if previous and report.get("collection_date", "") < previous[1]:
+                    return "newer_alert_preserved"
                 path = self.base + "/issues/" + str(existing["number"])
                 self.request(
                     "POST",
@@ -199,7 +205,8 @@ class IssueAlerts:
             return "healthy"
         body = self.body(report, run_url)
         if existing:
-            key = f"<!-- alert-key:{report['collection_date']}:{report['kind']} -->"
+            # Follow-up diagnoses still belong to the same unresolved incident.
+            key = f"<!-- alert-key:{report['collection_date']}:"
             if key in existing["body"]:
                 return "already_notified"
             path = self.base + "/issues/" + str(existing["number"])
@@ -287,7 +294,9 @@ def main():
             return 0
     result = alerts.sync(report, run_url)
     print(json.dumps({"notification": result, **report}))
-    return 0 if report["healthy"] else 2
+    # A delivered/deduplicated alert is successful monitoring, not recovery.
+    # Notification/API exceptions still fail through the entry-point handler.
+    return 0
 
 
 if __name__ == "__main__":
