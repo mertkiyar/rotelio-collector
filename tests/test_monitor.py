@@ -136,6 +136,47 @@ class MonitorTests(unittest.TestCase):
         )
         client.request.assert_not_called()
 
+    def test_saved_stop_has_specific_unhealthy_diagnosis(self):
+        status = {
+            "collection_date": "2026-10-23",
+            "cycle_start_date": "2026-10-23",
+            "collection_blocked": True,
+            "reason": "collection_blocked",
+            "coverage_complete": False,
+            "planned_query_count": 960,
+            "covered_query_count": 390,
+            "cycle_observation_count": 9909,
+        }
+
+        def preflight(*args, **kwargs):
+            print(json.dumps(status))
+            return 0
+
+        with patch("monitor.run", side_effect=preflight):
+            report = check_pool()
+        self.assertFalse(report["healthy"])
+        self.assertEqual(report["kind"], "collection_blocked")
+        self.assertEqual(report["collection_date"], "2026-10-23")
+        self.assertEqual(report["covered_query_count"], 390)
+
+    def test_successful_paused_run_does_not_hide_the_saved_stop(self):
+        client = Mock(repository="example/collector")
+        client.sync.return_value = "already_notified"
+        with tempfile.TemporaryDirectory() as directory:
+            event = Path(directory) / "event.json"
+            event.write_text(json.dumps({"workflow_run": {"conclusion": "success"}}))
+            with patch("monitor.IssueAlerts", return_value=client), patch(
+                "monitor.check_pool", return_value=self.report(kind="collection_blocked")
+            ), patch("sys.argv", ["monitor.py"]), patch.dict(os.environ, {
+                "GITHUB_EVENT_NAME": "workflow_run",
+                "GITHUB_EVENT_PATH": str(event),
+                "GITHUB_RUN_ID": "43",
+            }), patch("builtins.print") as output:
+                self.assertEqual(main(), 0)
+        client.sync.assert_called_once()
+        client.collection_in_progress.assert_not_called()
+        self.assertFalse(json.loads(output.call_args.args[0])["healthy"])
+
     def test_new_day_renotifies_existing_issue_instead_of_opening_another(self):
         client = self.client(
             {
