@@ -38,6 +38,21 @@ run on intervening days so delayed work can resume. Fresh cycles re-observe all
 are reserved for interrupted work; both daily and cycle limits are 992 attempts.
 Source-access and validation blocks are never automatically reset.
 
+A visible supplier loading screen may wait up to 90 seconds. An isolated loading
+timeout is recorded as `load_timeout`, without prices, and does not stop unrelated
+routes. A later batch may retry it after ten minutes, at most once in the same
+cycle. These attempts count toward the existing 992-attempt budget. Three
+consecutive loading timeouts pause the collector for review. Unexpected page
+states, access denial, CAPTCHA and validation failures still stop immediately.
+
+For an older `results_load_unverified` stop, an operator can supply the exact
+reviewed query ID through the manual workflow's `reviewed_loading_query` input.
+Recovery accepts only that legacy first-attempt error in the active cycle, with
+no saved fares and a departure date that has not passed. It records the review
+and retains attempt counts and all observations. It cannot clear other stops.
+The read-only preflight validates recovery on a disposable copy; only a real
+collection run publishes a new checkpoint.
+
 A saved stop is reported by preflight as `collection_blocked=true` and
 `needs_collection=false`. Scheduled jobs then skip browser setup and source
 requests without generating repeated collector failures. This is a paused,

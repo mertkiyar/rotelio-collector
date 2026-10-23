@@ -149,7 +149,7 @@ def cycle_summary(day, state):
     }
 
 
-def run(limit, check_only=False, cycle_day=None):
+def run(limit, check_only=False, cycle_day=None, reviewed_loading_query=None):
     if not 1 <= limit <= 240:
         raise VaultError("Batch query limit must be between 1 and 240")
     if cycle_day is not None and not check_only:
@@ -177,6 +177,11 @@ def run(limit, check_only=False, cycle_day=None):
         cfg = load_config()
         db = connect(database)
         try:
+            if reviewed_loading_query:
+                from flight_recovery import review_loading_stop
+                # Preflight changes only this disposable restored copy. It never
+                # publishes a reset; the collection invocation reviews it again.
+                review_loading_stop(db, cfg, day, reviewed_loading_query, apply=True)
             blocked = bool(get_control(db, "blocked"))
             if blocked and not check_only:
                 raise VaultError(
@@ -300,9 +305,14 @@ if __name__ == "__main__":
         action="store_true",
         help="Check the private pool without source requests",
     )
+    parser.add_argument(
+        "--reviewed-loading-query",
+        default=os.environ.get("REVIEWED_LOADING_QUERY") or None,
+        help="Explicitly reviewed legacy loading-timeout query; never resets access blocks",
+    )
     args = parser.parse_args()
     try:
-        raise SystemExit(run(args.limit, check_only=args.check))
+        raise SystemExit(run(args.limit, check_only=args.check, reviewed_loading_query=args.reviewed_loading_query))
     except VaultError as error:
         print(str(error), file=sys.stderr)
         raise SystemExit(2)
