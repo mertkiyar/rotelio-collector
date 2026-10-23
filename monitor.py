@@ -41,6 +41,7 @@ def check_pool(cycle_day=None):
         status = json.loads(captured.getvalue())
         healthy = (
             result == 0
+            and status.get("collection_blocked") is not True
             and (
                 status.get("coverage_complete") is True
                 or status.get("reason") == "cycle_not_started"
@@ -50,7 +51,9 @@ def check_pool(cycle_day=None):
         return {
             "healthy": healthy,
             "kind": (
-                "cycle_not_started"
+                "collection_blocked"
+                if status.get("collection_blocked") is True
+                else "cycle_not_started"
                 if status.get("reason") == "cycle_not_started"
                 else "daily_complete" if healthy else "daily_incomplete"
             ),
@@ -155,6 +158,7 @@ class IssueAlerts:
             "workflow_failed": "The flight collection workflow did not finish successfully.",
             "daily_incomplete": "The saved refresh cycle does not cover all 960 planned queries.",
             "health_check_failed": "The private checkpoint, access or data audit could not be verified.",
+            "collection_blocked": "Collection is paused by a saved stop condition requiring review. No new source requests were sent.",
             "notification_test": "Notification delivery test. No collection failure is being reported.",
         }
         body = (
@@ -279,7 +283,7 @@ def main():
             return 0
         if (
             os.environ.get("GITHUB_EVENT_NAME") == "workflow_run"
-            and not report["healthy"]
+            and report["kind"] == "daily_incomplete"
         ):
             # A successful small manual batch may deliberately leave a partial day.
             print(json.dumps({"notification": "waiting_for_daily_deadline", **report}))

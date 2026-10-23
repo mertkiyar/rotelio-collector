@@ -177,17 +177,32 @@ def run(limit, check_only=False, cycle_day=None):
         cfg = load_config()
         db = connect(database)
         try:
-            if get_control(db, "blocked"):
+            blocked = bool(get_control(db, "blocked"))
+            if blocked and not check_only:
                 raise VaultError(
                     "Stored collection block requires review; no source requests sent"
                 )
-            state = cycle_state(db, cfg, day, plan_day=cycle_day)
+            # A persistent stop affects the active collector. A delayed monitor
+            # checking an older cycle must still report this current incident.
+            state = cycle_state(db, cfg, day, plan_day=None if blocked else cycle_day)
         finally:
             db.close()
         summary = {
             **cycle_summary(day, state),
             "total_observation_count": before["offer_count"],
         }
+        if blocked:
+            write_summary({
+                **summary,
+                "skipped": True,
+                "needs_collection": False,
+                "collection_blocked": True,
+                "reason": "collection_blocked",
+                "source_requests_sent": 0,
+                "checkpoint_saved": False,
+            })
+            workflow_output(False)
+            return 0
         if state["cycle_start_date"] is None or state["coverage_complete"]:
             report = audit_exports(database, data, day, state)
             if not report["audit_passed"]:

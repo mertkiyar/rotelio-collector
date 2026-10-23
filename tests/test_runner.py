@@ -149,9 +149,7 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual(summary["added_observation_count"], 1)
             vault.publish.assert_called_once()
 
-    def test_stored_block_stops_preflight_without_exposing_reason(self):
-        from vault import VaultError
-
+    def test_stored_block_preflight_skips_without_requests_or_false_completion(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             original = root / "original.sqlite3"
@@ -168,8 +166,46 @@ class RunnerTests(unittest.TestCase):
             vault.restore.side_effect = restore
             with patch("cloud_runner.GitHubVault", return_value=vault), patch(
                 "cloud_runner.collect_process"
+            ) as source, patch("daily.today", return_value=date(2026, 10, 23)), patch.dict(
+                os.environ, {"GITHUB_OUTPUT": str(root / "outputs")}
+            ), contextlib.redirect_stdout(io.StringIO()) as captured:
+                self.assertEqual(run(240, check_only=True, cycle_day=date(2026, 10, 20)), 0)
+            summary = json.loads(captured.getvalue())
+            self.assertEqual(summary["reason"], "collection_blocked")
+            self.assertTrue(summary["collection_blocked"])
+            self.assertFalse(summary["coverage_complete"])
+            self.assertFalse(summary["needs_collection"])
+            self.assertEqual(summary["source_requests_sent"], 0)
+            self.assertEqual(summary["cycle_start_date"], "2026-10-23")
+            self.assertEqual(summary["total_observation_count"], 2)
+            self.assertNotIn("private source details", captured.getvalue())
+            self.assertEqual((root / "outputs").read_text(), "needs_collection=false\n")
+            source.assert_not_called()
+            vault.publish.assert_not_called()
+            from flight_store import connect, get_control
+            db = connect(original)
+            self.assertEqual(get_control(db, "blocked"), "private source details")
+            db.close()
+
+    def test_stored_block_still_refuses_direct_collection(self):
+        from vault import VaultError
+
+        with tempfile.TemporaryDirectory() as directory:
+            original = Path(directory) / "original.sqlite3"
+            db = daily_database(original)
+            db.execute("INSERT INTO control VALUES('blocked','private source details')")
+            db.commit()
+            db.close()
+            vault = Mock()
+            def restore(destination):
+                shutil.copyfile(original, destination)
+                return {"offer_count": 2, "asset_id": 7}
+
+            vault.restore.side_effect = restore
+            with patch("cloud_runner.GitHubVault", return_value=vault), patch(
+                "cloud_runner.collect_process"
             ) as source, self.assertRaises(VaultError) as error:
-                run(240, check_only=True)
+                run(240)
             self.assertNotIn("private source details", str(error.exception))
             source.assert_not_called()
             vault.publish.assert_not_called()

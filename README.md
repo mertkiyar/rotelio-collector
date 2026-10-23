@@ -38,6 +38,13 @@ run on intervening days so delayed work can resume. Fresh cycles re-observe all
 are reserved for interrupted work; both daily and cycle limits are 992 attempts.
 Source-access and validation blocks are never automatically reset.
 
+A saved stop is reported by preflight as `collection_blocked=true` and
+`needs_collection=false`. Scheduled jobs then skip browser setup and source
+requests without generating repeated collector failures. This is a paused,
+incomplete cycle, not successful coverage. Direct collection still refuses to
+run until the saved stop has been reviewed. The monitor keeps the incident open
+and reports the active cycle even when a delayed check targeted an older one.
+
 Coverage is measured over the complete cycle, using genuine observation dates
 from its three calendar days. A resumed batch retains its actual capture date;
 it is never backdated to the first day. Missed departure dates and empty or
