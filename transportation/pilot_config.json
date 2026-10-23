@@ -156,7 +156,7 @@
   "horizon_days": 30,
   "max_queries_per_day": 992,
   "minimum_seconds_between_searches": 30,
-  "results_timeout_seconds": 55,
+  "results_timeout_seconds": 90,
   "stable_result_seconds": 5,
   "refresh_anchor_date": "2026-10-17",
   "refresh_interval_days": 3,

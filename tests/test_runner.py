@@ -34,6 +34,45 @@ def daily_database(path):
 
 
 class RunnerTests(unittest.TestCase):
+    def test_reviewed_loading_preflight_does_not_publish_a_reset_or_collect(self):
+        from daily import ensure_plan, load_config
+        from flight_plan import build_jobs
+        from flight_store import connect, get_control, save_query, set_control
+        from test_cycle import fill_queries
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            original = root / "original.sqlite3"
+            day = date(2026, 10, 23)
+            cfg = load_config()
+            db = connect(original)
+            jobs = build_jobs(cfg, day)
+            # Only the reviewed timeout remains. Preflight must expose its retry
+            # without resetting the durable source checkpoint.
+            fill_queries(db, jobs[1:], day)
+            ensure_plan(db, cfg, day)
+            db.execute("UPDATE queries SET attempt_count=1 WHERE query_id=?", (jobs[0]["query_id"],))
+            save_query(db, jobs[0], "error", error_code="RuntimeError", error_message="RuntimeError: results_load_unverified")
+            set_control(db, "blocked", "RuntimeError: results_load_unverified")
+            db.close()
+            vault = Mock()
+
+            def restore(destination):
+                shutil.copyfile(original, destination)
+                return {"offer_count": 959, "asset_id": 7}
+
+            vault.restore.side_effect = restore
+            with patch("cloud_runner.GitHubVault", return_value=vault), patch("cloud_runner.collect_process") as source, patch("daily.today", return_value=day), patch.dict(os.environ, {"GITHUB_OUTPUT": str(root / "outputs")}), contextlib.redirect_stdout(io.StringIO()) as captured:
+                self.assertEqual(run(1, check_only=True, reviewed_loading_query=jobs[0]["query_id"]), 0)
+            self.assertTrue(json.loads(captured.getvalue())["needs_collection"])
+            self.assertEqual((root / "outputs").read_text(), "needs_collection=true\n")
+            source.assert_not_called()
+            vault.publish.assert_not_called()
+            db = connect(original)
+            self.assertEqual(get_control(db, "blocked"), "RuntimeError: results_load_unverified")
+            self.assertEqual(db.execute("SELECT count(*) FROM offers").fetchone()[0], 959)
+            db.close()
+
     def test_completed_cycle_skips_source_and_checkpoint_on_following_day(self):
         from daily import load_config
         from flight_plan import build_jobs

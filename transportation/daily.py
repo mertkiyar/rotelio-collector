@@ -34,6 +34,10 @@ class UnverifiedEmpty(RuntimeError):
     pass
 
 
+class ResultsLoadingTimeout(RuntimeError):
+    pass
+
+
 def today():
     return datetime.now(TZ).date()
 
@@ -73,6 +77,11 @@ def ensure_plan(db, cfg, day):
                     j["priority"],
                     json.dumps(j, ensure_ascii=False),
                 ),
+            )
+            db.execute(
+                "UPDATE queries SET query_state='pending' WHERE collection_date=? "
+                "AND query_id=? AND query_state='load_timeout'",
+                (j["collection_date"], j["query_id"]),
             )
     return needed
 
@@ -141,6 +150,7 @@ def capture(page, job, cfg):
             .filter(e=>/^journey-[A-Z]{3}-[A-Z]{3}-\\d{8}-/.test(e.id)&&e.getClientRects().length&&e.querySelector('.amount-integer'));
           return {ready:!!document.getElementById('departure-input')&&!document.getElementById('departure-input').disabled,
            blocked:/verify you are human|access denied|unusual traffic|erişiminiz engellendi|captcha doğrulama/i.test(document.body.innerText),
+           loading:/seferler yükleniyor|loading flights/i.test(document.body.innerText),
            count:rows.length,signature:rows.map(e=>e.id+':'+e.querySelector('.amount-integer').textContent).join('|')};}"""
         )
         last_signal = s
@@ -155,6 +165,8 @@ def capture(page, job, cfg):
         last = s["signature"]
         page.wait_for_timeout(1000)
     else:
+        if last_signal and last_signal["loading"]:
+            raise ResultsLoadingTimeout("Supplier still loading after the result deadline")
         if last_signal and last_signal["ready"] and not last_signal["count"]:
             raise UnverifiedEmpty("No visible fare cards; not verified as zero flights")
         raise RuntimeError("results_load_unverified")
@@ -242,6 +254,7 @@ def collect(cfg, limit):
             context = browser.new_context(locale="tr-TR", timezone_id="Europe/Istanbul")
             page = context.new_page()
             page.set_default_timeout(15000)
+            consecutive_load_timeouts = 0
             for item in pending:
                 if today() != day:
                     event(
@@ -289,6 +302,7 @@ def collect(cfg, limit):
                 )
                 try:
                     raw = capture(page, job, cfg)
+                    consecutive_load_timeouts = 0
                     path.write_text(
                         json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8"
                     )
@@ -337,6 +351,20 @@ def collect(cfg, limit):
                         )
                         result = 2
                         break
+                except ResultsLoadingTimeout as error:
+                    consecutive_load_timeouts += 1
+                    save_query(
+                        db, job, "load_timeout",
+                        error_code="supplier_loading_timeout",
+                        error_message=str(error),
+                        retry_after=(datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+                    )
+                    event(db, "query_load_timeout", job["query_id"])
+                    print("Supplier still loading; deferred without writing a price.", flush=True)
+                    if consecutive_load_timeouts >= 3:
+                        set_control(db, "blocked", "Consecutive supplier loading timeouts require review")
+                        result = 2
+                        break
                 except AccessBlocked as error:
                     save_query(
                         db,
@@ -350,6 +378,7 @@ def collect(cfg, limit):
                     result = 3
                     break
                 except UnverifiedEmpty as error:
+                    consecutive_load_timeouts = 0
                     save_query(
                         db,
                         job,

@@ -8,6 +8,10 @@ on:
         type: choice
         options: ['1', '120', '240']
         default: '240'
+      reviewed_loading_query:
+        description: 'Optional query ID after explicit review of a legacy loading timeout; never an access-block override'
+        type: string
+        default: ''
   schedule:
     # Turkey: 09:17, 12:17, 15:17, 18:17; 21:17 recovery slot.
     # Any scheduled start can finish all four batches without another cron event.
@@ -39,6 +43,7 @@ jobs:
       FLIGHT_BROWSER_CHANNEL: chromium
       DATA_VAULT_REPOSITORY: ${{ vars.DATA_VAULT_REPOSITORY }}
       QUERY_LIMIT: ${{ inputs.query_limit || '240' }}
+      REVIEWED_LOADING_QUERY: ${{ inputs.reviewed_loading_query || '' }}
     steps:
       - uses: actions/checkout@v6
         with:

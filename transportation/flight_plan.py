@@ -1,6 +1,7 @@
 """Thirty consecutive departure dates, refreshed in fixed three-day cycles."""
 
-from datetime import date, timedelta
+import json
+from datetime import date, datetime, timedelta, timezone
 
 
 def cycle_start(cfg, day):
@@ -65,7 +66,7 @@ def build_jobs(cfg, day):
     return jobs
 
 
-def cycle_state(db, cfg, day, plan_day=None):
+def cycle_state(db, cfg, day, plan_day=None, at=None):
     start = cycle_start(cfg, plan_day or day)
     jobs = build_jobs(cfg, plan_day or day)
     expected = {j["query_id"] for j in jobs}
@@ -109,12 +110,37 @@ def cycle_state(db, cfg, day, plan_day=None):
             (day.isoformat(),),
         )
     )
+    query_attempts = {}
+    latest = {}
+    for row in db.execute(
+        "SELECT query_id,attempt_count,query_state,payload FROM queries "
+        "WHERE collection_date BETWEEN ? AND ? ORDER BY collection_date",
+        bounds,
+    ):
+        query_attempts[row[0]] = query_attempts.get(row[0], 0) + row[1]
+        latest[row[0]] = (row[2], row[3])
+    clock = at or datetime.now(timezone.utc)
+
+    def ready(query_id):
+        # A delayed supplier response gets one deferred retry per cycle. This
+        # never resets an access/validation stop or turns missing fares into zero.
+        if query_attempts.get(query_id, 0) >= 2:
+            return False
+        previous = latest.get(query_id)
+        if previous and previous[0] == "load_timeout":
+            try:
+                retry_at = datetime.fromisoformat(json.loads(previous[1])["retry_after"])
+                return retry_at.tzinfo is not None and clock >= retry_at
+            except (KeyError, ValueError, TypeError):
+                return False
+        return current_states.get(query_id, "pending") in ("pending", "running")
+
     runnable = {
         j["query_id"]
         for j in jobs
         if j["query_id"] not in covered
         and j["travel_date"] >= day.isoformat()
-        and current_states.get(j["query_id"], "pending") in ("pending", "running")
+        and ready(j["query_id"])
     }
     attempts = sum(
         r[1]
