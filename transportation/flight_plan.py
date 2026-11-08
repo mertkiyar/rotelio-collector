@@ -139,7 +139,8 @@ def cycle_state(db, cfg, day, plan_day=None, at=None):
         j["query_id"]
         for j in jobs
         if j["query_id"] not in covered
-        and j["travel_date"] >= day.isoformat()
+        # A same-day departure fails the future-travel-date check; it is expired, not runnable.
+        and j["travel_date"] > day.isoformat()
         and ready(j["query_id"])
     }
     attempts = sum(
@@ -187,7 +188,7 @@ def cycle_state(db, cfg, day, plan_day=None, at=None):
         remaining_attempt_budget=remaining,
         cycle_attempt_count=attempts,
         expired_query_count=sum(
-            j["query_id"] not in covered and j["travel_date"] < day.isoformat()
+            j["query_id"] not in covered and j["travel_date"] <= day.isoformat()
             for j in jobs
         ),
         observation_dates=sorted({r[0] for r in counts}),
