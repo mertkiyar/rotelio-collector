@@ -308,7 +308,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--reviewed-loading-query",
         default=os.environ.get("REVIEWED_LOADING_QUERY") or None,
-        help="Explicitly reviewed loading, navigation or same-day date stop query; never resets access blocks",
+        help="Explicitly reviewed loading, navigation, date or midnight stop query; never resets access blocks",
     )
     args = parser.parse_args()
     try:

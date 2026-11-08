@@ -1,13 +1,16 @@
-"""Explicit review of loading, navigation and same-day date stops; never access or fare blocks."""
+"""Explicit review of loading, navigation, date and midnight stops; never access or fare blocks."""
 
 import json
+from datetime import datetime
 from flight_plan import cycle_start
+from flight_schema import TZ
 from flight_store import event, get_control, now, save_query, set_control
 
 LEGACY_LOADING_STOP = "RuntimeError: results_load_unverified"
 NAVIGATION_STOP_PREFIX = "TimeoutError: Page.goto: Timeout "
 CONSECUTIVE_TIMEOUT_STOP = "Consecutive supplier loading timeouts require review"
 SAME_DAY_DEPARTURE_STOP = "ValueError: future_travel_date_required"
+MIDNIGHT_STOP = "ValueError: observation_date_mismatch"
 
 
 def review_loading_stop(db, cfg, day, query_id, apply=False):
@@ -20,7 +23,9 @@ def review_loading_stop(db, cfg, day, query_id, apply=False):
         return _review_consecutive_timeouts(db, cfg, day, query_id, apply)
     if stop == SAME_DAY_DEPARTURE_STOP:
         return _review_same_day_departure(db, query_id, stop, apply)
-    raise ValueError("Saved stop is not a reviewable loading, navigation or same-day date stop")
+    if stop == MIDNIGHT_STOP:
+        return _review_midnight_stop(db, cfg, day, query_id, stop, apply)
+    raise ValueError("Saved stop is not a reviewable loading, navigation, date or midnight stop")
 
 
 def _latest(db, query_id, start=None, day=None):
@@ -134,4 +139,39 @@ def _review_same_day_departure(db, query_id, stop, apply):
         with db:
             set_control(db, "blocked", None)
             event(db, "date_stop_reviewed", query_id + ": stop cleared; query left unpriced")
+    return True
+
+
+def _review_midnight_stop(db, cfg, day, query_id, stop, apply):
+    row = _latest(db, query_id)
+    if row is None:
+        raise ValueError("Reviewed query is not in the private pool")
+    job = json.loads(row["payload"])
+    failed = db.execute(
+        "SELECT at FROM events WHERE event_type='query_error' AND message=? ORDER BY rowid DESC LIMIT 1",
+        (query_id + " " + stop,),
+    ).fetchone()
+    if (
+        row["query_state"] != "error"
+        or job.get("error_code") != "ValueError"
+        or job.get("error_message") != stop
+        or row["offer_count"] != 0
+        or failed is None
+        # Only a search that finished on a later Turkey date than its collection.
+        or datetime.fromisoformat(failed["at"]).astimezone(TZ).date().isoformat()
+        <= row["collection_date"]
+    ):
+        raise ValueError("Query does not match a saved, unpriced search that crossed midnight")
+    start = cycle_start(cfg, day)
+    if (
+        start is not None
+        and row["collection_date"] >= start.isoformat()
+        and job.get("travel_date", "") > day.isoformat()
+        and _attempts(db, query_id, start, day) == 1
+    ):
+        return _review_first_attempt(db, cfg, day, query_id, stop, "ValueError", apply)
+    if apply:
+        with db:
+            set_control(db, "blocked", None)
+            event(db, "midnight_stop_reviewed", query_id + ": stop cleared; query left unpriced")
     return True

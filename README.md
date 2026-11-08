@@ -62,7 +62,11 @@ through the manual workflow's `reviewed_loading_query` input. Recovery accepts:
   active cycle. Deferred queries keep their cooldown and one-retry limit;
 - a `future_travel_date_required` stop saved by searching a departure on the
   collection day, matched against that query. The stop is cleared and the query
-  stays an unpriced error; it is never retried.
+  stays an unpriced error; it is never retried;
+- an `observation_date_mismatch` stop saved by a search that started before
+  midnight and finished after it, matched against that query and its error time.
+  In the active cycle with a later departure it becomes one deferred retry;
+  otherwise the stop is cleared and the query stays an unpriced error.
 
 Recovery records the review and retains attempt counts and all observations. It
 cannot clear access, CAPTCHA, fare validation or other stops. The read-only preflight
