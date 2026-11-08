@@ -57,10 +57,13 @@ through the manual workflow's `reviewed_loading_query` input. Recovery accepts:
   deferred retry. Otherwise the stop is cleared and the query stays an unpriced
   error, never coverage or a zero fare;
 - the three-consecutive-timeouts stop, given one of its deferred queries in the
-  active cycle. Deferred queries keep their cooldown and one-retry limit.
+  active cycle. Deferred queries keep their cooldown and one-retry limit;
+- a `future_travel_date_required` stop saved by searching a departure on the
+  collection day, matched against that query. The stop is cleared and the query
+  stays an unpriced error; it is never retried.
 
 Recovery records the review and retains attempt counts and all observations. It
-cannot clear access, CAPTCHA, validation or other stops. The read-only preflight
+cannot clear access, CAPTCHA, fare validation or other stops. The read-only preflight
 validates recovery on a disposable copy; only a real collection run publishes a
 new checkpoint. Start a resumed collection with a small `query_limit` to confirm
 source access before normal batches.

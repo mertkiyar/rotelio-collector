@@ -1,4 +1,4 @@
-"""Explicit review of loading and navigation stops; never access or validation blocks."""
+"""Explicit review of loading, navigation and same-day date stops; never access or fare blocks."""
 
 import json
 from flight_plan import cycle_start
@@ -7,6 +7,7 @@ from flight_store import event, get_control, now, save_query, set_control
 LEGACY_LOADING_STOP = "RuntimeError: results_load_unverified"
 NAVIGATION_STOP_PREFIX = "TimeoutError: Page.goto: Timeout "
 CONSECUTIVE_TIMEOUT_STOP = "Consecutive supplier loading timeouts require review"
+SAME_DAY_DEPARTURE_STOP = "ValueError: future_travel_date_required"
 
 
 def review_loading_stop(db, cfg, day, query_id, apply=False):
@@ -17,7 +18,9 @@ def review_loading_stop(db, cfg, day, query_id, apply=False):
         return _review_navigation_stop(db, cfg, day, query_id, stop, apply)
     if stop == CONSECUTIVE_TIMEOUT_STOP:
         return _review_consecutive_timeouts(db, cfg, day, query_id, apply)
-    raise ValueError("Saved stop is not a reviewable loading or navigation timeout")
+    if stop == SAME_DAY_DEPARTURE_STOP:
+        return _review_same_day_departure(db, query_id, stop, apply)
+    raise ValueError("Saved stop is not a reviewable loading, navigation or same-day date stop")
 
 
 def _latest(db, query_id, start=None, day=None):
@@ -109,4 +112,26 @@ def _review_consecutive_timeouts(db, cfg, day, query_id, apply):
         with db:
             set_control(db, "blocked", None)
             event(db, "timeout_stop_reviewed", query_id + ": consecutive timeout stop cleared")
+    return True
+
+
+def _review_same_day_departure(db, query_id, stop, apply):
+    row = _latest(db, query_id)
+    if row is None:
+        raise ValueError("Reviewed query is not in the private pool")
+    job = json.loads(row["payload"])
+    if (
+        row["query_state"] != "error"
+        or job.get("error_code") != "ValueError"
+        or job.get("error_message") != stop
+        or row["offer_count"] != 0
+        or job.get("travel_date", "9999-12-31") > row["collection_date"]
+    ):
+        raise ValueError("Query does not match the saved, unpriced same-day departure")
+    # The departure was not a future date when searched, so it is never retried and
+    # stays an unpriced error rather than coverage or a zero fare.
+    if apply:
+        with db:
+            set_control(db, "blocked", None)
+            event(db, "date_stop_reviewed", query_id + ": stop cleared; query left unpriced")
     return True
