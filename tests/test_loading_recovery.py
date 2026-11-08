@@ -192,6 +192,17 @@ class LoadingRecoveryTests(unittest.TestCase):
                 review_loading_stop(self.db, self.cfg, self.day, key, apply=True)
         self.assertEqual(get_control(self.db, "blocked"), self.DATE_STOP)
 
+    def test_no_search_starts_close_to_midnight(self):
+        self.db.close()
+        cfg = {**self.cfg, "minimum_seconds_between_searches": 0}
+        with patch.object(daily, "DATA", Path(self.folder.name)), patch.object(daily, "today", return_value=self.day), patch.object(daily, "seconds_to_midnight", return_value=daily.MIDNIGHT_MARGIN_SECONDS - 1), patch.object(daily, "driver_start", return_value=MagicMock()), patch.object(daily, "choose_node", return_value="test"), patch.object(daily, "capture") as source, patch.object(daily, "export", return_value={}), contextlib.redirect_stdout(io.StringIO()), patch.object(daily, "connect", side_effect=lambda: connect(self.path)):
+            self.assertEqual(daily.collect(cfg, 5), 0)
+        source.assert_not_called()
+        self.db = connect(self.path)
+        self.assertIsNone(get_control(self.db, "blocked"))
+        self.assertEqual(self.db.execute("SELECT count(*) FROM events WHERE event_type='day_rollover'").fetchone()[0], 1)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM queries WHERE query_state='running'").fetchone()[0], 0)
+
     def test_consecutive_timeout_stop_clears_only_for_a_deferred_query(self):
         set_control(self.db, "blocked", "Consecutive supplier loading timeouts require review")
         with self.assertRaises(ValueError):

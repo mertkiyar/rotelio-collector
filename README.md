@@ -31,7 +31,9 @@ Search starts remain at least 30 seconds apart, so 960 searches take at least
 eight hours in total, with additional loading time. Actual GitHub start times
 can be delayed or dropped. Runs share a single writer concurrency group.
 
-A completed cycle causes subsequent invocations to exit before installing a
+A batch does not start a search within three minutes of midnight Turkey time, so
+every observation keeps the date of its collection; the next run continues on the
+new day. A completed cycle causes subsequent invocations to exit before installing a
 browser, sending source requests or uploading another checkpoint. Checks still
 run on intervening days so delayed work can resume. Fresh cycles re-observe all
 30 dates, including overlap with the preceding window. Up to 32 extra attempts
