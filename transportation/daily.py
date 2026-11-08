@@ -38,6 +38,10 @@ class ResultsLoadingTimeout(RuntimeError):
     pass
 
 
+class NavigationTimeout(ResultsLoadingTimeout):
+    """The source page itself did not load in time; deferred like a loading timeout."""
+
+
 def today():
     return datetime.now(TZ).date()
 
@@ -130,9 +134,15 @@ def validation_requires_stop(offers, rejected, raw_count):
 
 
 def capture(page, job, cfg):
-    response = page.goto(
-        job["source_url"], wait_until="domcontentloaded", timeout=35000
-    )
+    try:
+        response = page.goto(
+            job["source_url"], wait_until="domcontentloaded", timeout=35000
+        )
+    except Exception as error:
+        # Playwright raises its own TimeoutError; a slow page is not an access block.
+        if type(error).__name__ == "TimeoutError":
+            raise NavigationTimeout("Source page did not load within 35 seconds") from error
+        raise
     if response is None:
         raise RuntimeError("navigation_no_response")
     if response.status in (401, 403, 429):
@@ -353,14 +363,19 @@ def collect(cfg, limit):
                         break
                 except ResultsLoadingTimeout as error:
                     consecutive_load_timeouts += 1
+                    navigation = isinstance(error, NavigationTimeout)
                     save_query(
                         db, job, "load_timeout",
-                        error_code="supplier_loading_timeout",
+                        error_code="navigation_timeout" if navigation else "supplier_loading_timeout",
                         error_message=str(error),
                         retry_after=(datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
                     )
                     event(db, "query_load_timeout", job["query_id"])
-                    print("Supplier still loading; deferred without writing a price.", flush=True)
+                    print(
+                        ("Source page did not load" if navigation else "Supplier still loading")
+                        + "; deferred without writing a price.",
+                        flush=True,
+                    )
                     if consecutive_load_timeouts >= 3:
                         set_control(db, "blocked", "Consecutive supplier loading timeouts require review")
                         result = 2

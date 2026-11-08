@@ -41,8 +41,10 @@ Source-access and validation blocks are never automatically reset.
 A visible supplier loading screen may wait up to 90 seconds. An isolated loading
 timeout is recorded as `load_timeout`, without prices, and does not stop unrelated
 routes. A later batch may retry it after ten minutes, at most once in the same
-cycle. These attempts count toward the existing 992-attempt budget. Three
-consecutive loading timeouts pause the collector for review. Unexpected page
+cycle. A source page that does not open within 35 seconds is handled the same
+way, recorded with the `navigation_timeout` error code. These attempts count
+toward the existing 992-attempt budget. Three consecutive loading or navigation
+timeouts pause the collector for review. Unexpected page
 states, access denial, CAPTCHA and validation failures still stop immediately.
 
 For an older `results_load_unverified` stop, an operator can supply the exact
