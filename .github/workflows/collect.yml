@@ -9,7 +9,7 @@ on:
         options: ['1', '120', '240']
         default: '240'
       reviewed_loading_query:
-        description: 'Optional query ID after explicit review of a saved loading, navigation or same-day date stop; never an access-block override'
+        description: 'Optional query ID after explicit review of a saved loading, navigation, date or midnight stop; never an access-block override'
         type: string
         default: ''
   schedule:

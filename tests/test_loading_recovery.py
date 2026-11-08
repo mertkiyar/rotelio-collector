@@ -192,6 +192,41 @@ class LoadingRecoveryTests(unittest.TestCase):
                 review_loading_stop(self.db, self.cfg, self.day, key, apply=True)
         self.assertEqual(get_control(self.db, "blocked"), self.DATE_STOP)
 
+    MIDNIGHT_STOP = "ValueError: observation_date_mismatch"
+
+    def midnight_stop(self, failed_at):
+        self.db.execute("UPDATE queries SET attempt_count=1 WHERE query_id=?", (self.job["query_id"],))
+        save_query(self.db, self.job, "error", error_code="ValueError", error_message=self.MIDNIGHT_STOP)
+        self.db.execute(
+            "INSERT INTO events(at,event_type,message) VALUES(?,?,?)",
+            (failed_at, "query_error", self.job["query_id"] + " " + self.MIDNIGHT_STOP),
+        )
+        set_control(self.db, "blocked", self.MIDNIGHT_STOP)
+
+    def test_reviewed_midnight_stop_allows_one_retry_in_the_active_cycle(self):
+        following = date(2026, 10, 24)
+        self.job = next(j for j in build_jobs(self.cfg, self.day) if j["travel_date"] > following.isoformat())
+        # 21:00:07 UTC on 23 October is 00:00:07 on 24 October in Turkey.
+        self.midnight_stop("2026-10-23T21:00:07+00:00")
+        review_loading_stop(self.db, self.cfg, following, self.job["query_id"])
+        self.assertEqual(get_control(self.db, "blocked"), self.MIDNIGHT_STOP)
+        review_loading_stop(self.db, self.cfg, following, self.job["query_id"], apply=True)
+        self.assertIsNone(get_control(self.db, "blocked"))
+        row = self.db.execute(
+            "SELECT query_state,offer_count FROM queries WHERE query_id=? AND collection_date=?",
+            (self.job["query_id"], self.day.isoformat()),
+        ).fetchone()
+        self.assertEqual(tuple(row), ("load_timeout", 0))
+
+    def test_midnight_review_requires_a_search_that_crossed_midnight(self):
+        self.midnight_stop("2026-10-23T20:59:00+00:00")
+        with self.assertRaises(ValueError):
+            review_loading_stop(self.db, self.cfg, self.day, self.job["query_id"], apply=True)
+        other = build_jobs(self.cfg, self.day)[1]["query_id"]
+        with self.assertRaises(ValueError):
+            review_loading_stop(self.db, self.cfg, self.day, other, apply=True)
+        self.assertEqual(get_control(self.db, "blocked"), self.MIDNIGHT_STOP)
+
     def test_no_search_starts_close_to_midnight(self):
         self.db.close()
         cfg = {**self.cfg, "minimum_seconds_between_searches": 0}
