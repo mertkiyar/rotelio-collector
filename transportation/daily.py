@@ -46,6 +46,17 @@ def today():
     return datetime.now(TZ).date()
 
 
+# Covers navigation (35 s), supplier loading (90 s) and parsing, so a search that
+# starts before this margin ends on the same Turkey date as its collection.
+MIDNIGHT_MARGIN_SECONDS = 180
+
+
+def seconds_to_midnight():
+    now_local = datetime.now(TZ)
+    midnight = datetime.combine(now_local.date() + timedelta(days=1), datetime.min.time(), TZ)
+    return (midnight - now_local).total_seconds()
+
+
 def load_config():
     cfg = json.loads((ROOT / "pilot_config.json").read_text(encoding="utf-8"))
     if len(cfg["origin_ids"]) != 2 or len(cfg["destinations"]) != 8:
@@ -283,7 +294,14 @@ def collect(cfg, limit):
                     )
                     if wait > 0:
                         time.sleep(wait)
-                if today() != day:
+                if today() != day or seconds_to_midnight() < MIDNIGHT_MARGIN_SECONDS:
+                    # A search that finished after midnight would carry the next
+                    # day's observation date; the next run continues on that day.
+                    event(
+                        db,
+                        "day_rollover",
+                        "Stopped before a search could cross midnight.",
+                    )
                     break
                 job = json.loads(item["payload"])
                 job["attempt_count"] = item["attempt_count"] + 1
