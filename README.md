@@ -47,13 +47,23 @@ toward the existing 992-attempt budget. Three consecutive loading or navigation
 timeouts pause the collector for review. Unexpected page
 states, access denial, CAPTCHA and validation failures still stop immediately.
 
-For an older `results_load_unverified` stop, an operator can supply the exact
-reviewed query ID through the manual workflow's `reviewed_loading_query` input.
-Recovery accepts only that legacy first-attempt error in the active cycle, with
-no saved fares and a departure date that has not passed. It records the review
-and retains attempt counts and all observations. It cannot clear other stops.
-The read-only preflight validates recovery on a disposable copy; only a real
-collection run publishes a new checkpoint.
+After reviewing a saved timeout stop, an operator can supply the exact query ID
+through the manual workflow's `reviewed_loading_query` input. Recovery accepts:
+
+- an older `results_load_unverified` first-attempt error in the active cycle,
+  with no saved fares and a departure date that has not passed;
+- an older `Page.goto` navigation timeout, matched against the query that saved
+  it. If that query is in the active cycle with a future departure, it becomes one
+  deferred retry. Otherwise the stop is cleared and the query stays an unpriced
+  error, never coverage or a zero fare;
+- the three-consecutive-timeouts stop, given one of its deferred queries in the
+  active cycle. Deferred queries keep their cooldown and one-retry limit.
+
+Recovery records the review and retains attempt counts and all observations. It
+cannot clear access, CAPTCHA, validation or other stops. The read-only preflight
+validates recovery on a disposable copy; only a real collection run publishes a
+new checkpoint. Start a resumed collection with a small `query_limit` to confirm
+source access before normal batches.
 
 A saved stop is reported by preflight as `collection_blocked=true` and
 `needs_collection=false`. Scheduled jobs then skip browser setup and source
