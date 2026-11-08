@@ -138,6 +138,30 @@ class LoadingRecoveryTests(unittest.TestCase):
                 self.assertIs(type(error.exception), expected)
                 self.assertEqual(page.goto.call_count, 1)
 
+    def test_capture_defers_a_page_navigation_timeout_but_not_other_failures(self):
+        timeout = type("TimeoutError", (Exception,), {})  # Playwright's own class name
+        page = MagicMock()
+        page.goto.side_effect = timeout("Page.goto: Timeout 35000ms exceeded.")
+        with self.assertRaises(daily.NavigationTimeout) as error:
+            daily.capture(page, self.job, self.cfg)
+        self.assertIsInstance(error.exception, daily.ResultsLoadingTimeout)
+        page.evaluate.assert_not_called()
+        page.goto.side_effect = ConnectionError("net::ERR_NAME_NOT_RESOLVED")
+        with self.assertRaises(ConnectionError):
+            daily.capture(page, self.job, self.cfg)
+
+    def test_navigation_timeout_is_deferred_without_a_price_or_stop(self):
+        self.db.close()
+        cfg = {**self.cfg, "minimum_seconds_between_searches": 0}
+        errors = [daily.NavigationTimeout("slow page"), daily.AccessBlocked("HTTP_429")]
+        with patch.object(daily, "DATA", Path(self.folder.name)), patch.object(daily, "today", return_value=self.day), patch.object(daily, "driver_start", return_value=MagicMock()), patch.object(daily, "choose_node", return_value="test"), patch.object(daily, "capture", side_effect=errors) as source, patch.object(daily, "export", return_value={}), contextlib.redirect_stdout(io.StringIO()), patch.object(daily, "connect", side_effect=lambda: connect(self.path)):
+            self.assertEqual(daily.collect(cfg, 5), 3)
+        self.assertEqual(source.call_count, 2)
+        self.db = connect(self.path)
+        row = self.db.execute("SELECT query_state,json_extract(payload,'$.error_code'),offer_count FROM queries WHERE query_state='load_timeout'").fetchone()
+        self.assertEqual(tuple(row), ("load_timeout", "navigation_timeout", 0))
+        self.assertEqual(get_control(self.db, "blocked"), "HTTP_429")
+
     def test_http_access_blocks_stop_before_polling(self):
         for code in (401, 403, 429):
             with self.subTest(code=code):
