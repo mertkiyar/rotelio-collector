@@ -105,6 +105,62 @@ class LoadingRecoveryTests(unittest.TestCase):
             review_loading_stop(self.db, self.cfg, self.day, self.job["query_id"], apply=True)
         self.assertIsNotNone(get_control(self.db, "blocked"))
 
+    NAVIGATION_STOP = (
+        "TimeoutError: Page.goto: Timeout 35000ms exceeded.\nCall log:\n"
+        '  - navigating to "https://example.invalid/", waiting until "domcontentloaded"\n'
+    )
+
+    def navigation_stop(self):
+        self.db.execute("UPDATE queries SET attempt_count=1 WHERE query_id=?", (self.job["query_id"],))
+        save_query(self.db, self.job, "error", error_code="TimeoutError", error_message=self.NAVIGATION_STOP)
+        set_control(self.db, "blocked", self.NAVIGATION_STOP)
+
+    def test_reviewed_navigation_stop_in_the_active_cycle_allows_one_retry(self):
+        self.navigation_stop()
+        review_loading_stop(self.db, self.cfg, self.day, self.job["query_id"], apply=True)
+        self.assertIsNone(get_control(self.db, "blocked"))
+        state = cycle_state(self.db, self.cfg, self.day)
+        self.assertIn(self.job["query_id"], state["runnable_ids"])
+        self.assertEqual(state["cycle_attempt_count"], 1)
+
+    def test_reviewed_navigation_stop_from_a_past_cycle_clears_without_coverage(self):
+        self.navigation_stop()
+        self.db.execute("INSERT INTO offers VALUES('old','old','2026-10-20','old','{}')")
+        self.db.commit()
+        later = date(2026, 11, 8)
+        review_loading_stop(self.db, self.cfg, later, self.job["query_id"])
+        self.assertEqual(get_control(self.db, "blocked"), self.NAVIGATION_STOP)
+        review_loading_stop(self.db, self.cfg, later, self.job["query_id"], apply=True)
+        self.assertIsNone(get_control(self.db, "blocked"))
+        row = self.db.execute(
+            "SELECT query_state,offer_count FROM queries WHERE query_id=? ORDER BY collection_date DESC LIMIT 1",
+            (self.job["query_id"],),
+        ).fetchone()
+        self.assertEqual(tuple(row), ("error", 0))
+        self.assertEqual(self.db.execute("SELECT count(*) FROM offers").fetchone()[0], 1)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM events WHERE event_type='navigation_stop_reviewed'").fetchone()[0], 1)
+
+    def test_navigation_review_requires_the_query_that_saved_the_stop(self):
+        self.navigation_stop()
+        other = build_jobs(self.cfg, self.day)[1]["query_id"]
+        for key in ("missing", other):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                review_loading_stop(self.db, self.cfg, self.day, key, apply=True)
+        set_control(self.db, "blocked", "TimeoutError: Locator.click: Timeout 8000ms exceeded.")
+        with self.assertRaises(ValueError):
+            review_loading_stop(self.db, self.cfg, self.day, self.job["query_id"], apply=True)
+        self.assertIsNotNone(get_control(self.db, "blocked"))
+
+    def test_consecutive_timeout_stop_clears_only_for_a_deferred_query(self):
+        set_control(self.db, "blocked", "Consecutive supplier loading timeouts require review")
+        with self.assertRaises(ValueError):
+            review_loading_stop(self.db, self.cfg, self.day, self.job["query_id"], apply=True)
+        self.timeout(retry_after=self.clock + timedelta(minutes=10))
+        review_loading_stop(self.db, self.cfg, self.day, self.job["query_id"], apply=True)
+        self.assertIsNone(get_control(self.db, "blocked"))
+        state = cycle_state(self.db, self.cfg, self.day, at=self.clock)
+        self.assertNotIn(self.job["query_id"], state["runnable_ids"])
+
     def test_three_consecutive_loading_timeouts_stop_without_fabricated_prices(self):
         self.db.close()
         cfg = {**self.cfg, "minimum_seconds_between_searches": 0}
