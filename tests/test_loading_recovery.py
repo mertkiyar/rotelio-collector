@@ -53,8 +53,10 @@ class LoadingRecoveryTests(unittest.TestCase):
             self.assertNotIn(self.job["query_id"], state["runnable_ids"])
 
     def test_cooldown_survives_day_boundary(self):
-        self.timeout(retry_after=self.clock + timedelta(days=1))
         following = date(2026, 10, 24)
+        # A departure on the following day expires there, so use a later one.
+        self.job = next(j for j in build_jobs(self.cfg, self.day) if j["travel_date"] > following.isoformat())
+        self.timeout(retry_after=self.clock + timedelta(days=1))
         self.assertNotIn(self.job["query_id"], cycle_state(self.db, self.cfg, following, at=self.clock)["runnable_ids"])
         daily.ensure_plan(self.db, self.cfg, following)
         state = cycle_state(self.db, self.cfg, following, at=self.clock + timedelta(days=1, minutes=1))

@@ -94,7 +94,11 @@ class CycleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             db = connect(Path(directory) / "pool.sqlite3")
             state = cycle_state(db, self.cfg, date(2026, 10, 19))
-            self.assertEqual(state["expired_query_count"], 32)
+            # 18 and 19 October departures can no longer be observed in advance.
+            self.assertEqual(state["expired_query_count"], 64)
+            same_day = {j["query_id"] for j in self.jobs if j["travel_date"] == "2026-10-19"}
+            self.assertTrue(same_day)
+            self.assertFalse(same_day & state["runnable_ids"])
             self.assertFalse(state["coverage_complete"])
             self.assertEqual(state["offer_count"], 0)
             db.close()

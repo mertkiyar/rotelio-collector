@@ -74,7 +74,9 @@ and reports the active cycle even when a delayed check targeted an older one.
 
 Coverage is measured over the complete cycle, using genuine observation dates
 from its three calendar days. A resumed batch retains its actual capture date;
-it is never backdated to the first day. Missed departure dates and empty or
+it is never backdated to the first day. A departure on the collection day is
+not searched, because only future dates are valid observations. Missed
+departure dates and empty or
 blocked results remain missing, not zero-priced offers. They prevent full-cycle
 coverage. Earlier seven-date observations remain valid history but cannot count
 as coverage of a new cycle.
