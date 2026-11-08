@@ -153,6 +153,45 @@ class LoadingRecoveryTests(unittest.TestCase):
             review_loading_stop(self.db, self.cfg, self.day, self.job["query_id"], apply=True)
         self.assertIsNotNone(get_control(self.db, "blocked"))
 
+    DATE_STOP = "ValueError: future_travel_date_required"
+
+    def same_day_stop(self, collection_date=None):
+        job = {**self.job, "collection_date": collection_date or self.job["travel_date"]}
+        # Reproduce the row an earlier plan created for a departure on the run day.
+        self.db.execute(
+            "INSERT OR IGNORE INTO queries(collection_date,query_id,region_id,priority,attempt_count,payload) "
+            "SELECT ?,query_id,region_id,priority,1,payload FROM queries WHERE query_id=? LIMIT 1",
+            (job["collection_date"], job["query_id"]),
+        )
+        save_query(self.db, job, "error", error_code="ValueError", error_message=self.DATE_STOP)
+        set_control(self.db, "blocked", self.DATE_STOP)
+
+    def test_reviewed_same_day_departure_stop_clears_without_a_retry_or_fare(self):
+        self.same_day_stop()
+        later = date(2026, 10, 24)
+        review_loading_stop(self.db, self.cfg, later, self.job["query_id"])
+        self.assertEqual(get_control(self.db, "blocked"), self.DATE_STOP)
+        review_loading_stop(self.db, self.cfg, later, self.job["query_id"], apply=True)
+        self.assertIsNone(get_control(self.db, "blocked"))
+        row = self.db.execute(
+            "SELECT query_state,offer_count FROM queries WHERE query_id=? ORDER BY collection_date DESC LIMIT 1",
+            (self.job["query_id"],),
+        ).fetchone()
+        self.assertEqual(tuple(row), ("error", 0))
+        self.assertNotIn(self.job["query_id"], cycle_state(self.db, self.cfg, later)["runnable_ids"])
+        self.assertEqual(self.db.execute("SELECT count(*) FROM events WHERE event_type='date_stop_reviewed'").fetchone()[0], 1)
+
+    def test_same_day_review_rejects_other_queries_and_future_departures(self):
+        self.same_day_stop(collection_date="2026-10-23")
+        with self.assertRaises(ValueError):
+            review_loading_stop(self.db, self.cfg, self.day, self.job["query_id"], apply=True)
+        self.same_day_stop()
+        other = build_jobs(self.cfg, self.day)[1]["query_id"]
+        for key in ("missing", other):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                review_loading_stop(self.db, self.cfg, self.day, key, apply=True)
+        self.assertEqual(get_control(self.db, "blocked"), self.DATE_STOP)
+
     def test_consecutive_timeout_stop_clears_only_for_a_deferred_query(self):
         set_control(self.db, "blocked", "Consecutive supplier loading timeouts require review")
         with self.assertRaises(ValueError):
