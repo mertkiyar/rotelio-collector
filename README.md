@@ -59,7 +59,10 @@ through the manual workflow's `reviewed_loading_query` input. Recovery accepts:
   deferred retry. Otherwise the stop is cleared and the query stays an unpriced
   error, never coverage or a zero fare;
 - the three-consecutive-timeouts stop, given one of its deferred queries in the
-  active cycle. Deferred queries keep their cooldown and one-retry limit;
+  active cycle. Deferred queries keep their cooldown and one-retry limit. If the
+  stop was saved in a cycle that has since ended, the query must be one of the
+  three timeouts that saved it, with no saved fares; the stop is cleared and the
+  query stays an unpriced timeout, never retried;
 - a `future_travel_date_required` stop saved by searching a departure on the
   collection day, matched against that query. The stop is cleared and the query
   stays an unpriced error; it is never retried;

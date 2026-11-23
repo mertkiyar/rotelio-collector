@@ -110,7 +110,9 @@ def _review_consecutive_timeouts(db, cfg, day, query_id, apply):
     if start is None:
         raise ValueError("No active cycle for the reviewed timeouts")
     row = _latest(db, query_id, start, day)
-    if row is None or row["query_state"] != "load_timeout" or row["offer_count"] != 0:
+    if row is None:
+        return _review_earlier_cycle_timeouts(db, start, query_id, apply)
+    if row["query_state"] != "load_timeout" or row["offer_count"] != 0:
         raise ValueError("Reviewed query is not a deferred timeout in the active cycle")
     # The deferred queries keep their own cooldown and one-retry limit.
     if apply:
@@ -119,6 +121,32 @@ def _review_consecutive_timeouts(db, cfg, day, query_id, apply):
             event(db, "timeout_stop_reviewed", query_id + ": consecutive timeout stop cleared")
     return True
 
+
+
+def _review_earlier_cycle_timeouts(db, start, query_id, apply):
+    # A stop saved in an earlier cycle can only be matched against that cycle.
+    row = _latest(db, query_id)
+    stopping = [
+        r["message"]
+        for r in db.execute(
+            "SELECT message FROM events WHERE event_type='query_load_timeout' "
+            "ORDER BY rowid DESC LIMIT 3"
+        )
+    ]
+    if (
+        row is None
+        or row["query_state"] != "load_timeout"
+        or row["offer_count"] != 0
+        or row["collection_date"] >= start.isoformat()
+        or query_id not in stopping
+    ):
+        raise ValueError("Reviewed query is not one of the timeouts that saved the stop")
+    # That cycle has ended, so the query is not retried and stays unpriced.
+    if apply:
+        with db:
+            set_control(db, "blocked", None)
+            event(db, "timeout_stop_reviewed", query_id + ": earlier-cycle timeout stop cleared; query left unpriced")
+    return True
 
 def _review_same_day_departure(db, query_id, stop, apply):
     row = _latest(db, query_id)

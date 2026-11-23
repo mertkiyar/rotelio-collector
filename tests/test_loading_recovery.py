@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "transportation"))
 import daily
 from flight_plan import build_jobs, cycle_state
 from flight_recovery import review_loading_stop
-from flight_store import connect, get_control, save_query, set_control
+from flight_store import connect, event, get_control, save_query, set_control
 
 
 class LoadingRecoveryTests(unittest.TestCase):
@@ -247,6 +247,40 @@ class LoadingRecoveryTests(unittest.TestCase):
         self.assertIsNone(get_control(self.db, "blocked"))
         state = cycle_state(self.db, self.cfg, self.day, at=self.clock)
         self.assertNotIn(self.job["query_id"], state["runnable_ids"])
+
+    def test_timeout_stop_from_an_ended_cycle_clears_only_for_a_stopping_query(self):
+        later = date(2026, 10, 26)
+        other = build_jobs(self.cfg, self.day)[1]["query_id"]
+        self.timeout()
+        save_query(self.db, build_jobs(self.cfg, self.day)[1], "load_timeout", retry_after=self.clock.isoformat())
+        event(self.db, "query_load_timeout", other)
+        for _ in range(3):
+            event(self.db, "query_load_timeout", self.job["query_id"])
+        set_control(self.db, "blocked", "Consecutive supplier loading timeouts require review")
+        # The query is one of the deferred timeouts, but not of the three that stopped.
+        with self.assertRaises(ValueError):
+            review_loading_stop(self.db, self.cfg, later, other, apply=True)
+        self.assertIsNotNone(get_control(self.db, "blocked"))
+        review_loading_stop(self.db, self.cfg, later, self.job["query_id"], apply=True)
+        self.assertIsNone(get_control(self.db, "blocked"))
+        row = self.db.execute(
+            "SELECT query_state,offer_count,attempt_count FROM queries WHERE query_id=? AND collection_date=?",
+            (self.job["query_id"], self.day.isoformat()),
+        ).fetchone()
+        self.assertEqual(tuple(row), ("load_timeout", 0, 1))
+        self.assertEqual(self.db.execute("SELECT count(*) FROM offers").fetchone()[0], 0)
+
+    def test_ended_cycle_review_rejects_a_query_with_saved_fares(self):
+        later = date(2026, 10, 26)
+        self.timeout()
+        self.db.execute(
+            "UPDATE queries SET offer_count=2 WHERE query_id=?", (self.job["query_id"],)
+        )
+        event(self.db, "query_load_timeout", self.job["query_id"])
+        set_control(self.db, "blocked", "Consecutive supplier loading timeouts require review")
+        with self.assertRaises(ValueError):
+            review_loading_stop(self.db, self.cfg, later, self.job["query_id"], apply=True)
+        self.assertIsNotNone(get_control(self.db, "blocked"))
 
     def test_three_consecutive_loading_timeouts_stop_without_fabricated_prices(self):
         self.db.close()
